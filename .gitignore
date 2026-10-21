@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project artifacts (dataset, word vectors, model checkpoints)
+data/
+embeddings/
+checkpoints/
