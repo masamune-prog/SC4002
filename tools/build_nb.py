@@ -29,6 +29,8 @@ Notebook layout:
 5. Pretrained word vectors (GloVe 6B 300d)
 6. Stage-1 model: joint BiLSTM with character CNN and CRF
 7. Model checks: parameter budget, CRF against brute force, overfitting a small batch
+8. Training the Stage-1 system (seed 42) with per-epoch dev evaluation and three best-so-far checkpoints
+9. Final-evaluation function: reload each checkpoint and verify its dev scores
 ''')
 
 code(r'''
@@ -237,17 +239,30 @@ word_counts = Counter(w for toks in train_tokens for w in toks)
 char_counts = Counter(c for w in word_counts for c in w)
 assert PAD not in word_counts and UNK not in word_counts
 
-itos_word = [PAD, UNK] + sorted(word_counts)
-itos_char = [PAD, UNK] + sorted(char_counts)
-itos_intent = sorted({r["intent"] for r in splits["train"]})
-train_slot_types = sorted({t for r in splits["train"] for t, _ in parse_gold_pairs(r["annot_utt"])})
-itos_tag = ["O"] + [f"{p}-{t}" for t in train_slot_types for p in ("B", "I")]
+class Vocab:
+    """Token and label inventories built from train. Saved inside every checkpoint so predictions can be
+    reproduced from the checkpoint alone."""
 
-stoi_word = {w: i for i, w in enumerate(itos_word)}
-stoi_char = {c: i for i, c in enumerate(itos_char)}
-stoi_intent = {x: i for i, x in enumerate(itos_intent)}
-stoi_tag = {t: i for i, t in enumerate(itos_tag)}
+    def __init__(self, words, chars, intents, tags):
+        self.words, self.chars, self.intents, self.tags = list(words), list(chars), list(intents), list(tags)
+        self.word_id = {w: i for i, w in enumerate(self.words)}
+        self.char_id = {c: i for i, c in enumerate(self.chars)}
+        self.intent_id = {x: i for i, x in enumerate(self.intents)}
+        self.tag_id = {t: i for i, t in enumerate(self.tags)}
+
+    def state(self):
+        return {"words": self.words, "chars": self.chars, "intents": self.intents, "tags": self.tags}
+
+train_slot_types = sorted({t for r in splits["train"] for t, _ in parse_gold_pairs(r["annot_utt"])})
+VOCAB = Vocab(words=[PAD, UNK] + sorted(word_counts),
+              chars=[PAD, UNK] + sorted(char_counts),
+              intents=sorted({r["intent"] for r in splits["train"]}),
+              tags=["O"] + [f"{p}-{t}" for t in train_slot_types for p in ("B", "I")])
+
+itos_word, itos_char, itos_intent, itos_tag = VOCAB.words, VOCAB.chars, VOCAB.intents, VOCAB.tags
+stoi_word, stoi_char, stoi_intent, stoi_tag = VOCAB.word_id, VOCAB.char_id, VOCAB.intent_id, VOCAB.tag_id
 PAD_ID, UNK_ID = stoi_word[PAD], stoi_word[UNK]
+assert PAD_ID == stoi_char[PAD] == 0
 singletons = {stoi_word[w] for w, c in word_counts.items() if c == 1}
 
 print(f"word vocab: {len(itos_word):,} ({len(word_counts):,} train types + PAD/UNK), singletons: {len(singletons):,}")
@@ -263,29 +278,29 @@ for name in ("dev", "test"):
 ''')
 
 code(r'''
-def encode(record):
+def encode(record, vocab):
     """Model input from utt only; labels from intent and annot_utt."""
     tokens = record["utt"].split()
     _, tags = bio_tags(record["annot_utt"])
     return {
         "tokens": tokens,
-        "word_ids": [stoi_word.get(w, UNK_ID) for w in tokens],
-        "char_ids": [[stoi_char.get(c, stoi_char[UNK]) for c in w] for w in tokens],
-        "tag_ids": [stoi_tag[t] for t in tags],
-        "intent_id": stoi_intent[record["intent"]],
+        "word_ids": [vocab.word_id.get(w, vocab.word_id[UNK]) for w in tokens],
+        "char_ids": [[vocab.char_id.get(c, vocab.char_id[UNK]) for c in w] for w in tokens],
+        "tag_ids": [vocab.tag_id[t] for t in tags],
+        "intent_id": vocab.intent_id[record["intent"]],
         "annot_utt": record["annot_utt"],
         "intent": record["intent"],
     }
 
-encoded = {name: [encode(r) for r in rs] for name, rs in splits.items()}
+encoded = {name: [encode(r, VOCAB) for r in rs] for name, rs in splits.items()}
 
-def collate(batch):
+def collate(batch, vocab):
     """Pad a list of encoded examples into tensors: words [B,T], chars [B,T,L], tags [B,T], mask [B,T], intents [B]."""
     B = len(batch)
     T = max(len(ex["word_ids"]) for ex in batch)
     L = max(len(c) for ex in batch for c in ex["char_ids"])
-    words = torch.full((B, T), PAD_ID, dtype=torch.long)
-    chars = torch.full((B, T, L), stoi_char[PAD], dtype=torch.long)
+    words = torch.full((B, T), vocab.word_id[PAD], dtype=torch.long)
+    chars = torch.full((B, T, L), vocab.char_id[PAD], dtype=torch.long)
     tags = torch.zeros((B, T), dtype=torch.long)
     mask = torch.zeros((B, T), dtype=torch.bool)
     for i, ex in enumerate(batch):
@@ -298,7 +313,7 @@ def collate(batch):
     intents = torch.tensor([ex["intent_id"] for ex in batch])
     return {"words": words, "chars": chars, "tags": tags, "mask": mask, "intents": intents}
 
-demo = collate(encoded["train"][:4])
+demo = collate(encoded["train"][:4], VOCAB)
 print({k: tuple(v.shape) for k, v in demo.items()})
 ''')
 
@@ -652,10 +667,10 @@ MODEL_CONFIG = {
     "hidden": 256, "layers": 2, "intent_hidden": 256, "dropout": 0.5,
 }
 
-def build_model(cfg, word_vectors=None):
-    """Build the model from a config. word_vectors (GloVe init) is only needed for a fresh model, not a reload."""
-    model = JointBiLSTM(cfg, len(itos_word), len(itos_char), len(itos_intent), len(itos_tag),
-                        word_pad_id=PAD_ID, char_pad_id=stoi_char[PAD])
+def build_model(cfg, vocab, word_vectors=None):
+    """Build the model from a config and vocab. word_vectors (GloVe init) is only needed for a fresh model."""
+    model = JointBiLSTM(cfg, len(vocab.words), len(vocab.chars), len(vocab.intents), len(vocab.tags),
+                        word_pad_id=vocab.word_id[PAD], char_pad_id=vocab.char_id[PAD])
     if word_vectors is not None:
         with torch.no_grad():
             model.word_emb.weight.copy_(word_vectors)
@@ -665,23 +680,23 @@ def to_device(batch):
     return {k: v.to(DEVICE) for k, v in batch.items()}
 
 @torch.no_grad()
-def predict(model, examples, batch_size=256):
+def predict(model, examples, vocab, batch_size=256):
     """Run the model on encoded examples. Returns intent labels, slot-pair sets and the mean per-utterance loss."""
     model.eval()
     intents, pairs, loss_sum = [], [], 0.0
     for i in range(0, len(examples), batch_size):
         chunk = examples[i:i + batch_size]
-        batch = to_device(collate(chunk))
+        batch = to_device(collate(chunk, vocab))
         intent_logits, emissions = model(batch["words"], batch["chars"], batch["mask"])
         loss_sum += model.losses(intent_logits, emissions, batch).sum().item()
-        intents += [itos_intent[j] for j in intent_logits.argmax(-1).tolist()]
+        intents += [vocab.intents[j] for j in intent_logits.argmax(-1).tolist()]
         for ex, tag_ids in zip(chunk, model.decode_tags(emissions, batch["mask"])):
-            pairs.append(tags_to_pairs(ex["tokens"], [itos_tag[t] for t in tag_ids]))
+            pairs.append(tags_to_pairs(ex["tokens"], [vocab.tags[t] for t in tag_ids]))
     return intents, pairs, loss_sum / len(examples)
 
-def evaluate_model(model, examples, batch_size=256):
+def evaluate_model(model, examples, vocab, batch_size=256):
     """Predict, then score with the shared evaluate(). Also returns the mean loss."""
-    intents, pairs, loss = predict(model, examples, batch_size)
+    intents, pairs, loss = predict(model, examples, vocab, batch_size)
     scores = evaluate([ex["intent"] for ex in examples], intents, [ex["annot_utt"] for ex in examples], pairs)
     return {**scores, "loss": loss}
 ''')
@@ -713,7 +728,7 @@ def count_params(model):
 
 rows = []
 for name, overrides in VARIANTS.items():
-    m = build_model({**MODEL_CONFIG, **overrides}, emb_matrix)
+    m = build_model({**MODEL_CONFIG, **overrides}, VOCAB, emb_matrix)
     total, trainable = count_params(m)
     assert total <= PARAM_LIMIT, (name, total)
     rows.append({"variant": name, "total params": f"{total:,}", "trainable params": f"{trainable:,}",
@@ -721,7 +736,7 @@ for name, overrides in VARIANTS.items():
     del m
 display(pd.DataFrame(rows).set_index("variant"))
 
-m = build_model(MODEL_CONFIG, emb_matrix)
+m = build_model(MODEL_CONFIG, VOCAB, emb_matrix)
 print("Stage-1 model (full), parameters by component:")
 for name, child in m.named_children():
     n = sum(p.numel() for p in child.parameters())
@@ -804,10 +819,10 @@ this check; the real training in Section 8 starts from a fresh model.
 code(r'''
 def overfit_check(cfg, n_examples=64, steps=300, lr=1e-3):
     set_seed(SEED)
-    model = build_model(cfg, emb_matrix)
+    model = build_model(cfg, VOCAB, emb_matrix)
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=lr)
     subset = encoded["train"][:n_examples]
-    batch = to_device(collate(subset))
+    batch = to_device(collate(subset, VOCAB))
     for step in range(1, steps + 1):
         model.train()
         intent_logits, emissions = model(batch["words"], batch["chars"], batch["mask"])
@@ -817,7 +832,7 @@ def overfit_check(cfg, n_examples=64, steps=300, lr=1e-3):
         nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         optimizer.step()
         if step in (1, 50, 100, 200, steps):
-            s = evaluate_model(model, subset)
+            s = evaluate_model(model, subset, VOCAB)
             print(f"  step {step:3d} | train-mode loss {loss.item():8.4f} | eval loss {s['loss']:7.4f} | {format_scores(s)}")
     return s
 
@@ -826,6 +841,212 @@ for name, overrides in [("full (char + CRF)", {}), ("no CRF (softmax)", {"use_cr
     s = overfit_check({**MODEL_CONFIG, **overrides})
     assert s["intent_acc"] == 100.0 and s["slot_f1"] >= 99.0, s
 print("Both variants fit the 64 examples.")
+''')
+
+# ----------------------------------------------------------------------------- 8. training
+md(r'''
+## 8. Training the Stage-1 system
+
+The Stage-1 system is the full model (char CNN + CRF, fine-tuned GloVe), trained with seed 42. The seed was fixed
+before any results were seen.
+
+- Data: the **train split only**, shuffled every epoch. Word dropout replaces words seen once in train with
+  `<<UNK>>` at p = 0.5.
+- Adam (lr 1e-3), batch size 32, gradient-norm clipping at 5.0, 40 epochs, no early stopping.
+- After every epoch the model is evaluated on **dev** with the shared evaluator. The log records train loss (mean
+  per-utterance loss in training mode, so with dropout and word dropout), dev loss (the same loss in eval mode),
+  dev intent accuracy, dev slot F1, combined = (intent + slot) / 2, epoch time and total elapsed time.
+- Three best-so-far checkpoints are kept, one per selection rule (best intent accuracy, best slot F1, best
+  combined). A checkpoint is replaced only when the new score is strictly higher, compared at full precision, so
+  ties keep the earlier epoch.
+- Each checkpoint contains the weights, vocabulary (words, characters, intents, tags), model and training configs,
+  the epoch and its dev scores, which is everything needed to reproduce the predictions.
+''')
+
+code(r'''
+TRAIN_CONFIG = {"seed": SEED, "epochs": 40, "batch_size": 32, "lr": 1e-3, "clip": 5.0,
+                "word_dropout": 0.5, "eval_batch_size": 256}
+SELECTION_RULES = {"intent": "intent_acc", "slot": "slot_f1", "combined": "combined"}
+CHECKPOINT_DIR = Path("checkpoints")
+CHECKPOINT_DIR.mkdir(exist_ok=True)
+SINGLETON_IDS = torch.tensor(sorted(singletons))
+
+def apply_word_dropout(words, p, generator):
+    """Replace train-singleton word ids with <<UNK>> with probability p (training only)."""
+    if p <= 0:
+        return words
+    drop = torch.isin(words, SINGLETON_IDS) & (torch.rand(words.shape, generator=generator) < p)
+    return words.masked_fill(drop, UNK_ID)
+
+def save_checkpoint(path, model, vocab, model_cfg, train_cfg, run_name, rule, epoch, dev_scores):
+    torch.save({
+        "state_dict": model.state_dict(),
+        "vocab": vocab.state(),
+        "model_config": model_cfg,
+        "train_config": train_cfg,
+        "run_name": run_name,
+        "selection_rule": rule,
+        "epoch": epoch,
+        "dev_scores": dev_scores,
+        "param_counts": dict(zip(("total", "trainable"), count_params(model))),
+    }, path)
+
+def train_model(model_cfg, train_cfg, run_name, verbose=True):
+    """Train on the train split; evaluate on dev every epoch; keep one best-so-far checkpoint per rule."""
+    set_seed(train_cfg["seed"])
+    model = build_model(model_cfg, VOCAB, emb_matrix)
+    optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=train_cfg["lr"])
+    shuffle_rng = random.Random(train_cfg["seed"])
+    dropout_gen = torch.Generator().manual_seed(train_cfg["seed"])
+    train_examples, dev_examples = encoded["train"], encoded["dev"]
+    paths = {rule: CHECKPOINT_DIR / f"{run_name}_best_{rule}.pt" for rule in SELECTION_RULES}
+    best = {rule: None for rule in SELECTION_RULES}
+    history = []
+    run_start = time.time()
+    for epoch in range(1, train_cfg["epochs"] + 1):
+        epoch_start = time.time()
+        model.train()
+        order = list(range(len(train_examples)))
+        shuffle_rng.shuffle(order)
+        loss_sum = 0.0
+        for i in range(0, len(order), train_cfg["batch_size"]):
+            batch = collate([train_examples[j] for j in order[i:i + train_cfg["batch_size"]]], VOCAB)
+            batch["words"] = apply_word_dropout(batch["words"], train_cfg["word_dropout"], dropout_gen)
+            batch = to_device(batch)
+            intent_logits, emissions = model(batch["words"], batch["chars"], batch["mask"])
+            losses = model.losses(intent_logits, emissions, batch)
+            optimizer.zero_grad()
+            losses.mean().backward()
+            nn.utils.clip_grad_norm_(model.parameters(), train_cfg["clip"])
+            optimizer.step()
+            loss_sum += losses.sum().item()
+
+        dev = evaluate_model(model, dev_examples, VOCAB, train_cfg["eval_batch_size"])
+        now = time.time()
+        history.append({
+            "epoch": epoch, "train_loss": loss_sum / len(train_examples), "dev_loss": dev["loss"],
+            "dev_intent_acc": dev["intent_acc"], "dev_slot_f1": dev["slot_f1"], "dev_combined": dev["combined"],
+            "epoch_time_s": now - epoch_start, "elapsed_s": now - run_start,
+        })
+        improved = []
+        for rule, key in SELECTION_RULES.items():
+            if best[rule] is None or dev[key] > best[rule]["dev_scores"][key]:
+                best[rule] = {"epoch": epoch, "dev_scores": dev, "path": str(paths[rule])}
+                save_checkpoint(paths[rule], model, VOCAB, model_cfg, train_cfg, run_name, rule, epoch, dev)
+                improved.append(rule)
+        if verbose:
+            h = history[-1]
+            print(f"epoch {epoch:2d} | train loss {h['train_loss']:7.4f} | dev loss {h['dev_loss']:7.4f} | "
+                  f"{format_scores(dev)} | {h['epoch_time_s']:5.1f}s (total {h['elapsed_s']:6.1f}s)"
+                  + (f" | new best: {', '.join(improved)}" if improved else ""))
+    return pd.DataFrame(history).set_index("epoch"), best
+''')
+
+code(r'''
+STAGE1_RUN = "stage1_full_seed42"
+stage1_history, stage1_best = train_model(MODEL_CONFIG, TRAIN_CONFIG, STAGE1_RUN)
+print(f"\nTotal training time (40 epochs incl. per-epoch dev evaluation): {stage1_history['elapsed_s'].iloc[-1]:.1f}s")
+''')
+
+code(r'''
+pd.options.display.float_format = "{:.2f}".format
+display(stage1_history.drop(columns="elapsed_s").style.format({
+    "train_loss": "{:.4f}", "dev_loss": "{:.4f}", "dev_intent_acc": "{:.2f}", "dev_slot_f1": "{:.2f}",
+    "dev_combined": "{:.2f}", "epoch_time_s": "{:.1f}"}))
+''')
+
+code(r'''
+import matplotlib.pyplot as plt
+
+def plot_learning_curves(history, best, title):
+    fig, (ax_loss, ax_score) = plt.subplots(1, 2, figsize=(13, 4.5))
+    ax_loss.plot(history.index, history["train_loss"], marker=".", label="train loss")
+    ax_loss.plot(history.index, history["dev_loss"], marker=".", label="dev loss")
+    ax_loss.set_xlabel("epoch"); ax_loss.set_ylabel("mean loss per utterance"); ax_loss.set_title("Loss")
+    ax_loss.legend(); ax_loss.grid(alpha=0.3)
+    for col, label in [("dev_intent_acc", "dev intent accuracy"), ("dev_slot_f1", "dev slot F1"),
+                       ("dev_combined", "dev combined")]:
+        ax_score.plot(history.index, history[col], marker=".", label=label)
+    rules_by_epoch = {}
+    for rule, info in best.items():
+        rules_by_epoch.setdefault(info["epoch"], []).append(rule)
+    for epoch, rules in rules_by_epoch.items():
+        ax_score.axvline(epoch, color="grey", linestyle=":", linewidth=1)
+        ax_score.annotate(f"best {', '.join(rules)} (epoch {epoch})", (epoch, ax_score.get_ylim()[0] + 1),
+                          rotation=90, fontsize=8, color="grey", va="bottom", ha="right")
+    ax_score.set_xlabel("epoch"); ax_score.set_ylabel("%"); ax_score.set_title("Dev scores")
+    ax_score.legend(loc="lower right"); ax_score.grid(alpha=0.3)
+    fig.suptitle(title)
+    fig.tight_layout()
+    plt.show()
+
+plot_learning_curves(stage1_history, stage1_best, "Stage-1 system (full model, seed 42)")
+''')
+
+code(r'''
+print("Best-so-far checkpoints (dev):")
+summary = []
+for rule, info in stage1_best.items():
+    s = info["dev_scores"]
+    print(f"  best {rule:8s}: epoch {info['epoch']:2d} | {format_scores(s)} | {info['path']}")
+    summary.append({"selection rule": rule, "epoch": info["epoch"], "dev intent acc": s["intent_acc"],
+                    "dev slot F1": s["slot_f1"], "dev combined": s["combined"], "checkpoint": info["path"]})
+display(pd.DataFrame(summary).set_index("selection rule"))
+
+last_epochs = TRAIN_CONFIG["epochs"]
+late = [rule for rule, info in stage1_best.items() if info["epoch"] > last_epochs - 5]
+print(f"\nBest checkpoints in the last 5 epochs ({last_epochs - 4}-{last_epochs}): {late if late else 'none'}")
+print(f"Lowest dev loss at epoch {stage1_history['dev_loss'].idxmin()} "
+      f"({stage1_history['dev_loss'].min():.4f}); final dev loss {stage1_history['dev_loss'].iloc[-1]:.4f}")
+''')
+
+# ----------------------------------------------------------------------------- 9. final evaluation
+md(r'''
+## 9. Final evaluation from a checkpoint
+
+`final_eval(path, split)` rebuilds the model from the checkpoint alone (config, vocabulary, weights), re-encodes the
+raw records of the requested split with the checkpoint's vocabulary, and scores them with the shared evaluator.
+No training happens.
+
+For each of the three checkpoints, the dev scores are recomputed and must exactly equal the ones logged during
+training: same number of correct intents and same TP/FP/FN, so the percentages are identical too.
+
+**The test split stays locked** (`TEST_UNLOCKED = False`) until one selection rule has been chosen on dev. Only
+then will the chosen checkpoint be evaluated on test, once.
+''')
+
+code(r'''
+TEST_UNLOCKED = False
+
+def final_eval(checkpoint_path, split):
+    """Reload a checkpoint and evaluate it on one split, with no further training."""
+    if split == "test" and not TEST_UNLOCKED:
+        raise RuntimeError("Test evaluation is locked until the final checkpoint has been chosen on dev.")
+    ckpt = torch.load(checkpoint_path, map_location=DEVICE, weights_only=True)
+    vocab = Vocab(**ckpt["vocab"])
+    model = build_model(ckpt["model_config"], vocab)
+    model.load_state_dict(ckpt["state_dict"])
+    examples = [encode(r, vocab) for r in splits[split]]
+    scores = evaluate_model(model, examples, vocab, ckpt["train_config"]["eval_batch_size"])
+    return scores, ckpt
+
+for rule, info in stage1_best.items():
+    scores, ckpt = final_eval(info["path"], "dev")
+    logged = info["dev_scores"]
+    assert ckpt["epoch"] == info["epoch"] and ckpt["selection_rule"] == rule
+    for key in ("intent_correct", "tp", "fp", "fn", "n"):
+        assert scores[key] == logged[key], (rule, key, scores[key], logged[key])
+    for key in ("intent_acc", "slot_f1", "combined"):
+        assert scores[key] == logged[key], (rule, key, scores[key], logged[key])
+    print(f"reloaded best {rule:8s} (epoch {ckpt['epoch']:2d}, {info['path']}): dev {format_scores(scores)} | "
+          f"correct={scores['intent_correct']} TP={scores['tp']} FP={scores['fp']} FN={scores['fn']} "
+          f"-> identical to the logged dev scores")
+''')
+
+md(r'''
+### Test evaluation
+
+Pending: test is evaluated only after the selection rule has been chosen from the dev results above.
 ''')
 
 nb = new_notebook(cells=cells)
