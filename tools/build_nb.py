@@ -1,7 +1,9 @@
-"""Builds main.ipynb from the cell sources below.
+"""Builds main.ipynb (the Stage-1 pipeline) and ablations.ipynb from the cell sources below.
 
-Usage (from anywhere): python tools/build_nb.py [out.ipynb]   (default: <repo>/main.ipynb)
-This only writes the cells; execute the notebook afterwards so its outputs are produced by a real run.
+Usage (from anywhere): python tools/build_nb.py [main|ablations|all]   (default: all; written to the repo root)
+Cells shared by both notebooks (data, preprocessing, evaluator, model, training function) are defined once here and
+copied into each notebook, so each notebook runs on its own. Rebuilding a notebook clears its outputs: execute it
+afterwards (tools/run_nb.py) so the outputs come from a real run.
 """
 import sys
 from pathlib import Path
@@ -9,11 +11,20 @@ from pathlib import Path
 import nbformat
 from nbformat.v4 import new_notebook, new_markdown_cell, new_code_cell
 
-cells = []
-md = lambda s: cells.append(new_markdown_cell(s.strip("\n")))
-code = lambda s: cells.append(new_code_cell(s.strip("\n")))
+MAIN, ABLATIONS = "main", "ablations"
+cells = []                      # (notebooks the cell belongs to, cell)
+_scope = {MAIN}
+
+def scope(*notebooks):
+    """Cells defined after this call go into the given notebooks."""
+    global _scope
+    _scope = set(notebooks)
+
+md = lambda s: cells.append((_scope, new_markdown_cell(s.strip("\n"))))
+code = lambda s: cells.append((_scope, new_code_cell(s.strip("\n"))))
 
 # ----------------------------------------------------------------------------- 0. setup
+scope(MAIN)
 md(r'''
 # SC4002 Group Assignment: Joint Intent Classification and Slot Filling on MASSIVE (en-US)
 
@@ -31,8 +42,34 @@ Notebook layout:
 7. Model checks: parameter budget, CRF against brute force, overfitting a small batch
 8. Training the Stage-1 system (seed 42) with per-epoch dev evaluation and three best-so-far checkpoints
 9. Final-evaluation function: reload each checkpoint and verify its dev scores
+
+Dev-only ablations (other model variants and seeds) are in the separate notebook `ablations.ipynb`.
 ''')
 
+scope(ABLATIONS)
+md(r'''
+# SC4002 Group Assignment: Stage-1 ablations (dev only)
+
+This notebook compares variants of the Stage-1 model on the **dev split only**. No model is evaluated on test, and
+no checkpoints are saved. It is self-contained: Sections 0–5, 6, 7.1 and the training procedure in 8 are the same
+code as in `main.ipynb` (both notebooks are generated from one source, `tools/build_nb.py`), so every variant is
+trained and scored the same way as the Stage-1 system.
+
+Variants (5), each trained with seeds 42, 43 and 44, which makes 15 runs:
+- **full**: char CNN + CRF, fine-tuned GloVe (the Stage-1 system)
+- **no char**: without the char CNN
+- **no CRF**: softmax slot head instead of the CRF
+- **plain BiLSTM-softmax**: neither char CNN nor CRF
+- **full, frozen GloVe**: the full model with the word embeddings frozen
+
+The seed-42 full run is trained again here rather than copied from `main.ipynb`, and its dev counts are asserted
+to match exactly, which doubles as a reproducibility check.
+
+Notebook layout: 0–5 data, preprocessing, evaluator and GloVe (shared) · 6 model (shared) · 7.1 parameter budget
+(shared) · 8 training procedure (shared) · A. ablation runs · B. summary table and comparison plot.
+''')
+
+scope(MAIN, ABLATIONS)
 code(r'''
 import os
 # cuBLAS needs this workspace setting for deterministic kernels; it must be set before torch is imported.
@@ -747,6 +784,7 @@ print(f"  {'TOTAL':12s} {total:12,d}  (trainable {trainable:,}) -> within 20M: {
 del m
 ''')
 
+scope(MAIN)
 md(r'''
 ### 7.2 CRF correctness against brute force
 
@@ -844,23 +882,27 @@ print("Both variants fit the 64 examples.")
 ''')
 
 # ----------------------------------------------------------------------------- 8. training
+scope(MAIN, ABLATIONS)
 md(r'''
-## 8. Training the Stage-1 system
+## 8. Training procedure
 
-The Stage-1 system is the full model (char CNN + CRF, fine-tuned GloVe), trained with seed 42. The seed was fixed
-before any results were seen.
+Every model in both notebooks is trained by the same function, `train_model`:
 
 - Data: the **train split only**, shuffled every epoch. Word dropout replaces words seen once in train with
   `<<UNK>>` at p = 0.5.
-- Adam (lr 1e-3), batch size 32, gradient-norm clipping at 5.0, 40 epochs, no early stopping.
+- Adam (lr 1e-3), batch size 32, gradient-norm clipping at 5.0, 40 epochs, no early stopping. The seed fixes the
+  model initialisation, the shuffling order, dropout and word dropout. (The random vectors for the train words
+  without a GloVe vector are created once in Section 5 with seed 42 and are the same for every run.)
 - After every epoch the model is evaluated on **dev** with the shared evaluator. The log records train loss (mean
   per-utterance loss in training mode, so with dropout and word dropout), dev loss (the same loss in eval mode),
   dev intent accuracy, dev slot F1, combined = (intent + slot) / 2, epoch time and total elapsed time.
-- Three best-so-far checkpoints are kept, one per selection rule (best intent accuracy, best slot F1, best
-  combined). A checkpoint is replaced only when the new score is strictly higher, compared at full precision, so
+- The best epoch so far is tracked for each of three selection rules: best intent accuracy, best slot F1 and best
+  combined. A new epoch replaces the best only when its score is strictly higher, compared at full precision, so
   ties keep the earlier epoch.
-- Each checkpoint contains the weights, vocabulary (words, characters, intents, tags), model and training configs,
-  the epoch and its dev scores, which is everything needed to reproduce the predictions.
+- When checkpoints are saved (the Stage-1 run in `main.ipynb`), each rule's best epoch is saved to its own file,
+  containing the weights, vocabulary (words, characters, intents, tags), model and training configs, the epoch and
+  its dev scores, which is everything needed to reproduce the predictions. The dev-only ablation runs save no
+  checkpoints.
 ''')
 
 code(r'''
@@ -868,7 +910,6 @@ TRAIN_CONFIG = {"seed": SEED, "epochs": 40, "batch_size": 32, "lr": 1e-3, "clip"
                 "word_dropout": 0.5, "eval_batch_size": 256}
 SELECTION_RULES = {"intent": "intent_acc", "slot": "slot_f1", "combined": "combined"}
 CHECKPOINT_DIR = Path("checkpoints")
-CHECKPOINT_DIR.mkdir(exist_ok=True)
 SINGLETON_IDS = torch.tensor(sorted(singletons))
 
 def apply_word_dropout(words, p, generator):
@@ -891,8 +932,10 @@ def save_checkpoint(path, model, vocab, model_cfg, train_cfg, run_name, rule, ep
         "param_counts": dict(zip(("total", "trainable"), count_params(model))),
     }, path)
 
-def train_model(model_cfg, train_cfg, run_name, verbose=True):
-    """Train on the train split; evaluate on dev every epoch; keep one best-so-far checkpoint per rule."""
+def train_model(model_cfg, train_cfg, run_name, save_checkpoints=True, verbose=True):
+    """Train on the train split; evaluate on dev every epoch; track (and optionally save) the best epoch per rule."""
+    if save_checkpoints:
+        CHECKPOINT_DIR.mkdir(exist_ok=True)
     set_seed(train_cfg["seed"])
     model = build_model(model_cfg, VOCAB, emb_matrix)
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=train_cfg["lr"])
@@ -927,12 +970,14 @@ def train_model(model_cfg, train_cfg, run_name, verbose=True):
             "epoch": epoch, "train_loss": loss_sum / len(train_examples), "dev_loss": dev["loss"],
             "dev_intent_acc": dev["intent_acc"], "dev_slot_f1": dev["slot_f1"], "dev_combined": dev["combined"],
             "epoch_time_s": now - epoch_start, "elapsed_s": now - run_start,
+            "dev_intent_correct": dev["intent_correct"], "dev_tp": dev["tp"], "dev_fp": dev["fp"], "dev_fn": dev["fn"],
         })
         improved = []
         for rule, key in SELECTION_RULES.items():
             if best[rule] is None or dev[key] > best[rule]["dev_scores"][key]:
-                best[rule] = {"epoch": epoch, "dev_scores": dev, "path": str(paths[rule])}
-                save_checkpoint(paths[rule], model, VOCAB, model_cfg, train_cfg, run_name, rule, epoch, dev)
+                best[rule] = {"epoch": epoch, "dev_scores": dev, "path": str(paths[rule]) if save_checkpoints else None}
+                if save_checkpoints:
+                    save_checkpoint(paths[rule], model, VOCAB, model_cfg, train_cfg, run_name, rule, epoch, dev)
                 improved.append(rule)
         if verbose:
             h = history[-1]
@@ -943,6 +988,62 @@ def train_model(model_cfg, train_cfg, run_name, verbose=True):
 ''')
 
 code(r'''
+import matplotlib.pyplot as plt
+
+FIGURES_DIR = Path("figures")
+FIGURES_DIR.mkdir(exist_ok=True)
+# Chart colours: a validated categorical palette (slots 1-3 pass the colour-blindness checks); text stays in ink
+# colours, gridlines are solid hairlines, and every series is named in a legend.
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+INK, INK_SECONDARY, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+plt.rcParams.update({
+    "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
+    "axes.edgecolor": GRID, "axes.labelcolor": INK_SECONDARY, "axes.titlecolor": INK,
+    "xtick.color": INK_SECONDARY, "ytick.color": INK_SECONDARY, "text.color": INK,
+    "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8, "grid.linestyle": "-",
+    "axes.spines.top": False, "axes.spines.right": False, "lines.linewidth": 2,
+    "legend.frameon": False, "font.size": 10,
+})
+
+def save_figure(fig, name):
+    path = FIGURES_DIR / name
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"saved {path}")
+
+def plot_learning_curves(history, best, title, filename):
+    fig, (ax_loss, ax_score) = plt.subplots(1, 2, figsize=(13, 4.5))
+    ax_loss.plot(history.index, history["train_loss"], color=SERIES[0], label="train loss")
+    ax_loss.plot(history.index, history["dev_loss"], color=SERIES[1], label="dev loss")
+    ax_loss.set_xlabel("epoch"); ax_loss.set_ylabel("mean loss per utterance"); ax_loss.set_title("Loss")
+    ax_loss.legend()
+    for col, label, colour in [("dev_intent_acc", "dev intent accuracy", SERIES[0]),
+                               ("dev_slot_f1", "dev slot F1", SERIES[1]),
+                               ("dev_combined", "dev combined", SERIES[2])]:
+        ax_score.plot(history.index, history[col], color=colour, label=label)
+    rules_by_epoch = {}
+    for rule, info in best.items():
+        rules_by_epoch.setdefault(info["epoch"], []).append(rule)
+    for epoch, rules in rules_by_epoch.items():
+        ax_score.axvline(epoch, color=INK_SECONDARY, linewidth=0.8)
+        ax_score.annotate(f"best {', '.join(rules)} (epoch {epoch})", (epoch, ax_score.get_ylim()[0] + 1),
+                          rotation=90, fontsize=8, color=INK_SECONDARY, va="bottom", ha="right")
+    ax_score.set_xlabel("epoch"); ax_score.set_ylabel("%"); ax_score.set_title("Dev scores")
+    ax_score.legend(loc="lower right")
+    fig.suptitle(title)
+    fig.tight_layout()
+    save_figure(fig, filename)
+    plt.show()
+''')
+
+scope(MAIN)
+md(r'''
+### 8.1 Stage-1 run
+
+The Stage-1 system is the full model (char CNN + CRF, fine-tuned GloVe), trained with seed 42. The seed was fixed
+before any results were seen. The best epoch of each selection rule is saved as a checkpoint.
+''')
+
+code(r'''
 STAGE1_RUN = "stage1_full_seed42"
 stage1_history, stage1_best = train_model(MODEL_CONFIG, TRAIN_CONFIG, STAGE1_RUN)
 print(f"\nTotal training time (40 epochs incl. per-epoch dev evaluation): {stage1_history['elapsed_s'].iloc[-1]:.1f}s")
@@ -950,37 +1051,15 @@ print(f"\nTotal training time (40 epochs incl. per-epoch dev evaluation): {stage
 
 code(r'''
 pd.options.display.float_format = "{:.2f}".format
-display(stage1_history.drop(columns="elapsed_s").style.format({
+display(stage1_history[["train_loss", "dev_loss", "dev_intent_acc", "dev_slot_f1", "dev_combined",
+                        "epoch_time_s"]].style.format({
     "train_loss": "{:.4f}", "dev_loss": "{:.4f}", "dev_intent_acc": "{:.2f}", "dev_slot_f1": "{:.2f}",
     "dev_combined": "{:.2f}", "epoch_time_s": "{:.1f}"}))
 ''')
 
 code(r'''
-import matplotlib.pyplot as plt
-
-def plot_learning_curves(history, best, title):
-    fig, (ax_loss, ax_score) = plt.subplots(1, 2, figsize=(13, 4.5))
-    ax_loss.plot(history.index, history["train_loss"], marker=".", label="train loss")
-    ax_loss.plot(history.index, history["dev_loss"], marker=".", label="dev loss")
-    ax_loss.set_xlabel("epoch"); ax_loss.set_ylabel("mean loss per utterance"); ax_loss.set_title("Loss")
-    ax_loss.legend(); ax_loss.grid(alpha=0.3)
-    for col, label in [("dev_intent_acc", "dev intent accuracy"), ("dev_slot_f1", "dev slot F1"),
-                       ("dev_combined", "dev combined")]:
-        ax_score.plot(history.index, history[col], marker=".", label=label)
-    rules_by_epoch = {}
-    for rule, info in best.items():
-        rules_by_epoch.setdefault(info["epoch"], []).append(rule)
-    for epoch, rules in rules_by_epoch.items():
-        ax_score.axvline(epoch, color="grey", linestyle=":", linewidth=1)
-        ax_score.annotate(f"best {', '.join(rules)} (epoch {epoch})", (epoch, ax_score.get_ylim()[0] + 1),
-                          rotation=90, fontsize=8, color="grey", va="bottom", ha="right")
-    ax_score.set_xlabel("epoch"); ax_score.set_ylabel("%"); ax_score.set_title("Dev scores")
-    ax_score.legend(loc="lower right"); ax_score.grid(alpha=0.3)
-    fig.suptitle(title)
-    fig.tight_layout()
-    plt.show()
-
-plot_learning_curves(stage1_history, stage1_best, "Stage-1 system (full model, seed 42)")
+plot_learning_curves(stage1_history, stage1_best, "Stage-1 system (full model, seed 42)",
+                     "stage1_learning_curves.png")
 ''')
 
 code(r'''
@@ -1044,14 +1123,162 @@ for rule, info in stage1_best.items():
 ''')
 
 md(r'''
-### Test evaluation
+### Selected Stage-1 checkpoint
 
-Pending: test is evaluated only after the selection rule has been chosen from the dev results above.
+**Selection rule: best dev combined score.** It was chosen after the dev results above were reviewed. In this run
+all three rules pick the same epoch, so the choice does not change which weights are used.
 ''')
 
-nb = new_notebook(cells=cells)
-nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
-nb.metadata["language_info"] = {"name": "python"}
-out_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "main.ipynb"
-nbformat.write(nb, out_path)
-print(f"wrote {len(cells)} cells to {out_path}")
+code(r'''
+STAGE1_SELECTION_RULE = "combined"
+stage1_selected = stage1_best[STAGE1_SELECTION_RULE]
+print(f"Selected Stage-1 checkpoint (rule: best dev {STAGE1_SELECTION_RULE}): {stage1_selected['path']}")
+print(f"  epoch {stage1_selected['epoch']} | dev {format_scores(stage1_selected['dev_scores'])}")
+''')
+
+md(r'''
+### Test evaluation
+
+Pending: the test split is still locked (`TEST_UNLOCKED = False`). The selected checkpoint above will be evaluated on
+test once, as the final step.
+''')
+
+# ----------------------------------------------------------------------------- A. ablation runs
+scope(ABLATIONS)
+md(r'''
+## A. Ablation runs
+
+5 variants × seeds 42, 43, 44 = 15 runs. Each uses `train_model` exactly as the Stage-1 run does (same training
+config, 40 epochs, dev evaluation every epoch), with no checkpoints saved. For every run the per-epoch dev log is
+printed, and the best epoch and dev scores under each of the three selection rules are kept.
+
+**Reproducibility check:** the first run (full model, seed 42) repeats the Stage-1 run from `main.ipynb`. Its
+best-combined epoch and that epoch's dev counts must exactly match the values printed there: epoch 26,
+1,768 correct intents, TP 1,670, FP 415, FN 341. The assertion runs straight after that run.
+''')
+
+code(r'''
+ABLATION_SEEDS = [42, 43, 44]
+STAGE1_VARIANT = "full (char + CRF)"
+MAIN_NB_STAGE1 = {"epoch": 26, "intent_correct": 1768, "tp": 1670, "fp": 415, "fn": 341}   # from main.ipynb
+
+ablation_runs = {}
+ablation_start = time.time()
+for variant, overrides in VARIANTS.items():
+    for seed in ABLATION_SEEDS:
+        print(f"\n=== {variant} | seed {seed} ===")
+        history, best = train_model({**MODEL_CONFIG, **overrides}, {**TRAIN_CONFIG, "seed": seed},
+                                    run_name=f"ablation_seed{seed}", save_checkpoints=False)
+        ablation_runs[(variant, seed)] = {"history": history, "best": best}
+        for rule in SELECTION_RULES:
+            print(f"best {rule:8s}: epoch {best[rule]['epoch']:2d} | {format_scores(best[rule]['dev_scores'])}")
+        print(f"run time {history['elapsed_s'].iloc[-1]:.0f}s")
+
+        if (variant, seed) == (STAGE1_VARIANT, 42):
+            s = best["combined"]["dev_scores"]
+            got = {"epoch": best["combined"]["epoch"], "intent_correct": s["intent_correct"],
+                   "tp": s["tp"], "fp": s["fp"], "fn": s["fn"]}
+            assert got == MAIN_NB_STAGE1, (got, MAIN_NB_STAGE1)
+            row = history.loc[MAIN_NB_STAGE1["epoch"]]
+            assert (row["dev_intent_correct"], row["dev_tp"], row["dev_fp"], row["dev_fn"]) == (1768, 1670, 415, 341)
+            print("REPRODUCIBILITY CHECK PASSED: seed-42 full model matches main.ipynb exactly "
+                  f"(epoch 26: correct={s['intent_correct']} TP={s['tp']} FP={s['fp']} FN={s['fn']})")
+
+print(f"\nAll {len(ablation_runs)} runs finished in {(time.time() - ablation_start) / 60:.1f} min")
+''')
+
+# ----------------------------------------------------------------------------- B. summary
+md(r'''
+## B. Summary
+
+**Per run:** the best epoch under each selection rule, and the dev scores at the best-combined epoch. `rules
+agree` is False when the three rules pick different epochs.
+''')
+
+code(r'''
+run_rows = []
+for (variant, seed), run in ablation_runs.items():
+    best = run["best"]
+    epochs = {rule: best[rule]["epoch"] for rule in SELECTION_RULES}
+    s = best["combined"]["dev_scores"]
+    run_rows.append({
+        "variant": variant, "seed": seed,
+        "best epoch: intent": epochs["intent"], "best epoch: slot": epochs["slot"],
+        "best epoch: combined": epochs["combined"], "rules agree": len(set(epochs.values())) == 1,
+        "dev intent acc": s["intent_acc"], "dev slot F1": s["slot_f1"], "dev combined": s["combined"],
+        "best dev intent acc (any epoch)": best["intent"]["dev_scores"]["intent_acc"],
+        "best dev slot F1 (any epoch)": best["slot"]["dev_scores"]["slot_f1"],
+    })
+runs_df = pd.DataFrame(run_rows).set_index(["variant", "seed"])
+display(runs_df.style.format(precision=2))
+
+disagree = runs_df[~runs_df["rules agree"]]
+print(f"Runs where the three rules pick different epochs: {len(disagree)} of {len(runs_df)}")
+for (variant, seed), r in disagree.iterrows():
+    print(f"  {variant} | seed {seed}: intent -> epoch {r['best epoch: intent']}, "
+          f"slot -> epoch {r['best epoch: slot']}, combined -> epoch {r['best epoch: combined']}")
+''')
+
+md(r'''
+**Per variant:** dev scores at each seed's best-combined epoch, as mean ± sample standard deviation over the
+three seeds (n = 3, ddof = 1), with each seed's best-combined epoch.
+''')
+
+code(r'''
+def mean_std(values):
+    values = np.asarray(values, dtype=float)
+    return f"{values.mean():.2f} ± {values.std(ddof=1):.2f}"
+
+summary_rows = []
+for variant, overrides in VARIANTS.items():
+    total, trainable = count_params(build_model({**MODEL_CONFIG, **overrides}, VOCAB))
+    sub = runs_df.loc[variant]
+    summary_rows.append({
+        "variant": variant, "total params": f"{total:,}", "trainable params": f"{trainable:,}",
+        "dev intent acc": mean_std(sub["dev intent acc"]), "dev slot F1": mean_std(sub["dev slot F1"]),
+        "dev combined": mean_std(sub["dev combined"]),
+        "best-combined epoch (seeds 42 / 43 / 44)": " / ".join(str(e) for e in sub["best epoch: combined"]),
+    })
+summary_df = pd.DataFrame(summary_rows).set_index("variant")
+display(summary_df)
+''')
+
+code(r'''
+fig, ax = plt.subplots(figsize=(9, 3.8))
+variants = list(VARIANTS)
+for i, variant in enumerate(variants):
+    y = len(variants) - 1 - i                                   # first variant at the top
+    vals = runs_df.loc[variant, "dev combined"].to_numpy()
+    mean, std = vals.mean(), vals.std(ddof=1)
+    ax.errorbar(mean, y, xerr=std, fmt="o", color=SERIES[0], markersize=9, capsize=4, elinewidth=2,
+                markeredgecolor=SURFACE, markeredgewidth=1.5, zorder=3,
+                label="mean ± std over 3 seeds" if i == 0 else None)
+    ax.scatter(vals, np.full(len(vals), y - 0.22), s=22, color=INK_SECONDARY, zorder=2,
+               label="individual seeds" if i == 0 else None)
+    ax.annotate(f"{mean:.2f} ± {std:.2f}", (max(vals.max(), mean + std), y), xytext=(10, 0),
+                textcoords="offset points", va="center", fontsize=9, color=INK)
+ax.set_yticks(range(len(variants)), variants[::-1])
+ax.grid(axis="y", visible=False)
+lo, hi = runs_df["dev combined"].min(), runs_df["dev combined"].max()
+ax.set_xlim(lo - 0.5, hi + 1.2)
+ax.set_ylim(-0.6, len(variants) - 0.4)
+ax.set_xlabel("dev combined score (%) at each seed's best-combined epoch")
+ax.set_title("Stage-1 ablations: dev combined score (intent acc + slot F1) / 2")
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2, fontsize=9)
+fig.tight_layout()
+save_figure(fig, "ablation_dev_combined.png")
+plt.show()
+''')
+
+# ----------------------------------------------------------------------------- write
+REPO = Path(__file__).resolve().parent.parent
+target = sys.argv[1] if len(sys.argv) > 1 else "all"
+if target not in (MAIN, ABLATIONS, "all"):
+    sys.exit(f"unknown notebook '{target}' (main, ablations or all)")
+for name in ([MAIN, ABLATIONS] if target == "all" else [target]):
+    nb = new_notebook(cells=[cell for notebooks, cell in cells if name in notebooks])
+    nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
+    nb.metadata["language_info"] = {"name": "python"}
+    out_path = REPO / f"{name}.ipynb"
+    nbformat.write(nb, out_path)
+    print(f"wrote {len(nb.cells)} cells to {out_path}")
