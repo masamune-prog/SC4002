@@ -1,6 +1,6 @@
 """Builds main.ipynb (the Stage-1 pipeline) and ablations.ipynb from the cell sources below.
 
-Usage (from anywhere): python tools/build_nb.py [main|ablations|all]   (default: all; written to the repo root)
+Usage (from anywhere): python tools/build_nb.py [main|ablations|all] [out_dir]   (defaults: all, the repo root)
 Cells shared by both notebooks (data, preprocessing, evaluator, model, training function) are defined once here and
 copied into each notebook, so each notebook runs on its own. Rebuilding a notebook clears its outputs: execute it
 afterwards (tools/run_nb.py) so the outputs come from a real run.
@@ -67,6 +67,27 @@ to match exactly, which doubles as a reproducibility check.
 
 Notebook layout: 0–5 data, preprocessing, evaluator and GloVe (shared) · 6 model (shared) · 7.1 parameter budget
 (shared) · 8 training procedure (shared) · A. ablation runs · B. summary table and comparison plot.
+''')
+
+md(r'''
+## Findings
+
+Written after the runs below finished. Every number behind these statements is computed by the notebook and shown
+in the tables in Section B.
+
+- **The CRF clearly helps slot filling.** Both variants without the CRF (no CRF, plain BiLSTM-softmax) have lower
+  dev slot F1 and dev combined than both variants with it, by much more than the seed-to-seed spread. Intent
+  accuracy is barely affected.
+- **The character features are within seed noise.** Full vs no char differ on dev combined by less than the spread
+  across seeds, so three seeds cannot tell them apart.
+- **Frozen GloVe trades intent for slots.** Compared with fine-tuning, it gives slightly higher dev slot F1, lower
+  dev intent accuracy, and a slightly lower combined score.
+- **Seed 42 is the best of the three full-model seeds** on dev combined. The Stage-1 system, which is the seed-42
+  run, therefore sits slightly above this architecture's seed average.
+- **Epoch cap.** Several non-full runs reach their best combined score in the last 5 of the 40 epochs. Their
+  per-epoch logs show late gains of at most a few tenths of a point per 10 epochs, with the plain BiLSTM-softmax
+  still creeping up. That is small next to the CRF gap, so the conclusions above should hold with longer training,
+  though the CRF's margin may shrink slightly.
 ''')
 
 scope(MAIN, ABLATIONS)
@@ -1273,12 +1294,13 @@ plt.show()
 # ----------------------------------------------------------------------------- write
 REPO = Path(__file__).resolve().parent.parent
 target = sys.argv[1] if len(sys.argv) > 1 else "all"
+out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else REPO
 if target not in (MAIN, ABLATIONS, "all"):
     sys.exit(f"unknown notebook '{target}' (main, ablations or all)")
 for name in ([MAIN, ABLATIONS] if target == "all" else [target]):
     nb = new_notebook(cells=[cell for notebooks, cell in cells if name in notebooks])
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     nb.metadata["language_info"] = {"name": "python"}
-    out_path = REPO / f"{name}.ipynb"
+    out_path = out_dir / f"{name}.ipynb"
     nbformat.write(nb, out_path)
     print(f"wrote {len(nb.cells)} cells to {out_path}")
