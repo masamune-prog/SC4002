@@ -21,6 +21,8 @@ All numbers below are copied from the saved notebook outputs at commit `e128604`
 | Stage-1 system | Validation | 4,879,850 | 4,879,850 | 86.97 | 81.54 | 26 | 40 |
 | Stage-1 system | Test | 4,879,850 | 4,879,850 | 86.38 | 79.14 | 26 | 40 |
 
+Combined score ((intent + slot F1) / 2): validation 84.25, test 82.76.
+
 Raw test counts: 2,569 / 2,974 intents correct; slots TP 2,248, FP 618, FN 567.
 
 **The same architecture over 3 seeds** (dev only, from `ablations.ipynb`; seeds 42 / 43 / 44, each at its
