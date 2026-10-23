@@ -1,6 +1,6 @@
-"""Builds main.ipynb (the Stage-1 pipeline) and ablations.ipynb from the cell sources below.
+"""Builds main.ipynb (the Stage-1 pipeline), ablations.ipynb and tuning.ipynb from the cell sources below.
 
-Usage (from anywhere): python tools/build_nb.py [main|ablations|all] [out_dir]   (defaults: all, the repo root)
+Usage (from anywhere): python tools/build_nb.py [main|ablations|tuning|all] [out_dir]   (defaults: all, the repo root)
 Cells shared by both notebooks (data, preprocessing, evaluator, model, training function) are defined once here and
 copied into each notebook, so each notebook runs on its own. Rebuilding a notebook clears its outputs: execute it
 afterwards (tools/run_nb.py) so the outputs come from a real run.
@@ -11,7 +11,7 @@ from pathlib import Path
 import nbformat
 from nbformat.v4 import new_notebook, new_markdown_cell, new_code_cell
 
-MAIN, ABLATIONS = "main", "ablations"
+MAIN, ABLATIONS, TUNING = "main", "ablations", "tuning"
 cells = []                      # (notebooks the cell belongs to, cell)
 _scope = {MAIN}
 
@@ -43,7 +43,8 @@ Notebook layout:
 8. Training the Stage-1 system (seed 42) with per-epoch dev evaluation and three best-so-far checkpoints
 9. Final-evaluation function: reload each checkpoint and verify its dev scores
 
-Dev-only ablations (other model variants and seeds) are in the separate notebook `ablations.ipynb`.
+Dev-only ablations (other model variants and seeds) are in the separate notebook `ablations.ipynb`, and the
+hyperparameter search (dev only) is in `tuning.ipynb`.
 ''')
 
 scope(ABLATIONS)
@@ -90,7 +91,39 @@ in the tables in Section B.
   though the CRF's margin may shrink slightly.
 ''')
 
-scope(MAIN, ABLATIONS)
+scope(TUNING)
+md(r'''
+# SC4002 Group Assignment: Stage-1 hyperparameter search (dev only)
+
+A small hyperparameter search for the Stage-1 model. The architecture is fixed (char CNN + CRF); only training and
+size settings vary. Everything is scored on the **dev split** with the combined score (intent accuracy + slot F1) / 2
+at each run's best-combined epoch. No model is evaluated on test, and no checkpoints are saved. The notebook is
+self-contained: Sections 0–5, 6, 7.1 and 8 are the same code as in `main.ipynb`, generated from one source
+(`tools/build_nb.py`).
+
+**Procedure (fixed before any tuning results were seen):**
+1. **One setting at a time (seed 42, 40 epochs).** The current Stage-1 config plus 12 single changes: BiLSTM hidden
+   size, number of layers, dropout, learning rate, batch size and word-dropout rate. The current config's run must
+   reproduce `main.ipynb` exactly.
+2. **Combination.** Changes that beat the current config by more than the noise threshold (0.3 combined points) are
+   combined: one run with all of them if two or more settings qualify, plus one with the top two if three or more
+   qualify.
+3. **Epoch cap.** A config whose best epoch is in the last 5 epochs and whose dev combined is within 0.3 of the best
+   config so far is rerun with 60 epochs. Its first 40 epochs must match the 40-epoch run exactly, and the 60-epoch
+   result is used from then on. No other config is extended.
+4. **Seed check.** The top 3 configs other than the current one, ranked by seed-42 dev combined, are rerun with seeds
+   43 and 44. The reference row is the current config: its seed-42 run from this notebook, plus its seed-43 and
+   seed-44 results read from the saved outputs of `ablations.ipynb`.
+5. **Rule for the final pick.** Take the config with the highest 3-seed mean dev combined. It replaces the current
+   config only if its mean beats the reference mean by more than 0.3. Otherwise the current config is kept.
+
+The 0.3 threshold is the noise level seen so far: the full model's seed-to-seed std is about 0.13 and its
+epoch-to-epoch jitter about 0.2–0.3 (see `ablations.ipynb`).
+
+Layout: 0–8 shared code · T1 sweep · T2 combination · T3 epoch cap · T4 seed check and final pick.
+''')
+
+scope(MAIN, ABLATIONS, TUNING)
 code(r'''
 import os
 # cuBLAS needs this workspace setting for deterministic kernels; it must be set before torch is imported.
@@ -903,11 +936,11 @@ print("Both variants fit the 64 examples.")
 ''')
 
 # ----------------------------------------------------------------------------- 8. training
-scope(MAIN, ABLATIONS)
+scope(MAIN, ABLATIONS, TUNING)
 md(r'''
 ## 8. Training procedure
 
-Every model in both notebooks is trained by the same function, `train_model`:
+Every model in all three notebooks is trained by the same function, `train_model`:
 
 - Data: the **train split only**, shuffled every epoch. Word dropout replaces words seen once in train with
   `<<UNK>>` at p = 0.5.
@@ -922,8 +955,8 @@ Every model in both notebooks is trained by the same function, `train_model`:
   ties keep the earlier epoch.
 - When checkpoints are saved (the Stage-1 run in `main.ipynb`), each rule's best epoch is saved to its own file,
   containing the weights, vocabulary (words, characters, intents, tags), model and training configs, the epoch and
-  its dev scores, which is everything needed to reproduce the predictions. The dev-only ablation runs save no
-  checkpoints.
+  its dev scores, which is everything needed to reproduce the predictions. The dev-only ablation and tuning runs
+  save no checkpoints.
 ''')
 
 code(r'''
@@ -1291,13 +1324,288 @@ save_figure(fig, "ablation_dev_combined.png")
 plt.show()
 ''')
 
+# ----------------------------------------------------------------------------- T1. sweep
+scope(TUNING)
+md(r'''
+## T1. One setting at a time (seed 42, 40 epochs)
+
+Each config changes one setting of the current Stage-1 config. Every config is checked against the 20M parameter
+limit before anything is trained. Reported per config: total parameters, best-combined epoch, dev intent accuracy,
+slot F1 and combined at that epoch, Δ combined vs the current config, and run time. `late best` marks a best epoch
+in the last 5 epochs.
+''')
+
+code(r'''
+NOISE = 0.3                     # combined-score points; smaller differences are treated as noise
+LATE = 5                        # "late best epoch" = within the last LATE epochs
+EXTENDED_EPOCHS = 60
+CURRENT = "current (Stage-1)"
+MAIN_NB_STAGE1 = {"epoch": 26, "intent_correct": 1768, "tp": 1670, "fp": 415, "fn": 341}   # from main.ipynb
+
+def spec(name, setting, model=None, train=None):
+    return {"name": name, "setting": setting, "model": model or {}, "train": train or {}}
+
+SWEEP = [
+    spec(CURRENT, "-"),
+    spec("hidden 128", "hidden", model={"hidden": 128}),
+    spec("hidden 384", "hidden", model={"hidden": 384}),
+    spec("layers 1", "layers", model={"layers": 1}),
+    spec("layers 3", "layers", model={"layers": 3}),
+    spec("dropout 0.3", "dropout", model={"dropout": 0.3}),
+    spec("dropout 0.4", "dropout", model={"dropout": 0.4}),
+    spec("lr 5e-4", "lr", train={"lr": 5e-4}),
+    spec("lr 2e-3", "lr", train={"lr": 2e-3}),
+    spec("batch 16", "batch size", train={"batch_size": 16}),
+    spec("batch 64", "batch size", train={"batch_size": 64}),
+    spec("word dropout 0.0", "word dropout", train={"word_dropout": 0.0}),
+    spec("word dropout 0.25", "word dropout", train={"word_dropout": 0.25}),
+]
+
+def params_of(s):
+    return count_params(build_model({**MODEL_CONFIG, **s["model"]}, VOCAB))
+
+rows = []
+for s in SWEEP:
+    total, trainable = params_of(s)
+    assert total <= PARAM_LIMIT, (s["name"], total)
+    rows.append({"config": s["name"], "changes": {**s["model"], **s["train"]} or "-",
+                 "total params": f"{total:,}", "trainable params": f"{trainable:,}", "<= 20M": True})
+display(pd.DataFrame(rows).set_index("config"))
+''')
+
+code(r'''
+results = []                    # one dict per run
+
+def run_config(s, seed, epochs=None):
+    epochs = epochs or TRAIN_CONFIG["epochs"]
+    print(f"\n=== {s['name']} | seed {seed} | {epochs} epochs ===")
+    history, best = train_model({**MODEL_CONFIG, **s["model"]},
+                                {**TRAIN_CONFIG, **s["train"], "seed": seed, "epochs": epochs},
+                                run_name="tuning", save_checkpoints=False)
+    b = best["combined"]
+    d = b["dev_scores"]
+    total, _ = params_of(s)
+    r = {"config": s["name"], "setting": s["setting"], "seed": seed, "epochs": epochs, "total params": total,
+         "best epoch": b["epoch"], "late best": b["epoch"] > epochs - LATE,
+         "dev intent acc": d["intent_acc"], "dev slot F1": d["slot_f1"], "dev combined": d["combined"],
+         "run time (min)": history["elapsed_s"].iloc[-1] / 60, "scores": d, "history": history, "spec": s}
+    results.append(r)
+    print(f"best combined: epoch {b['epoch']} | {format_scores(d)} | run time {r['run time (min)']:.1f} min")
+    return r
+
+def table(rs, reference=None):
+    df = pd.DataFrame([{k: r[k] for k in ("config", "seed", "epochs", "total params", "best epoch", "late best",
+                                          "dev intent acc", "dev slot F1", "dev combined", "run time (min)")}
+                       for r in rs]).set_index("config")
+    if reference is not None:
+        df.insert(df.columns.get_loc("dev combined") + 1, "Δ combined vs current", df["dev combined"] - reference)
+    return df.style.format({"total params": "{:,}", "dev intent acc": "{:.2f}", "dev slot F1": "{:.2f}",
+                            "dev combined": "{:.2f}", "Δ combined vs current": "{:+.2f}", "run time (min)": "{:.1f}"})
+
+sweep_start = time.time()
+sweep = {}
+for s in SWEEP:
+    sweep[s["name"]] = run_config(s, seed=42)
+    if s["name"] == CURRENT:   # reproducibility: the current config must match main.ipynb's Stage-1 run exactly
+        d = sweep[CURRENT]["scores"]
+        got = {"epoch": sweep[CURRENT]["best epoch"], "intent_correct": d["intent_correct"],
+               "tp": d["tp"], "fp": d["fp"], "fn": d["fn"]}
+        assert got == MAIN_NB_STAGE1, (got, MAIN_NB_STAGE1)
+        print("REPRODUCIBILITY CHECK PASSED: current config matches main.ipynb exactly "
+              f"(epoch 26: correct={d['intent_correct']} TP={d['tp']} FP={d['fp']} FN={d['fn']})")
+print(f"\nSweep: {len(sweep)} runs in {(time.time() - sweep_start) / 60:.1f} min")
+''')
+
+code(r'''
+current_42 = sweep[CURRENT]["dev combined"]
+display(table(list(sweep.values()), reference=current_42))
+
+fig, ax = plt.subplots(figsize=(9, 5))
+names = [s["name"] for s in SWEEP][::-1]
+vals = [sweep[n]["dev combined"] for n in names]
+ax.axvspan(current_42 - NOISE, current_42 + NOISE, color=GRID, alpha=0.6, lw=0, label=f"current ± {NOISE} (noise band)")
+ax.axvline(current_42, color=INK_SECONDARY, linewidth=0.8)
+ax.scatter(vals, range(len(names)), s=60, color=SERIES[0], edgecolor=SURFACE, linewidth=1.5, zorder=3,
+           label="seed-42 dev combined")
+for y, (n, v) in enumerate(zip(names, vals)):
+    ax.annotate(f"{v:.2f}", (v, y), xytext=(8, 0), textcoords="offset points", va="center", fontsize=8, color=INK)
+ax.set_yticks(range(len(names)), names)
+ax.grid(axis="y", visible=False)
+ax.set_xlabel("dev combined score (%) at the best-combined epoch")
+ax.set_title("T1: one setting at a time (seed 42, 40 epochs)")
+ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize=9)
+fig.tight_layout()
+save_figure(fig, "tuning_sweep.png")
+plt.show()
+''')
+
+# ----------------------------------------------------------------------------- T2. combination
+md(r'''
+## T2. Combination
+
+For each setting, the best value is kept if it beats the current config by more than 0.3 combined. If two or more
+settings qualify, one run combines all of them; if three or more qualify, a second run combines the top two.
+''')
+
+code(r'''
+winners = {}
+for s in SWEEP[1:]:
+    r = sweep[s["name"]]
+    gain = r["dev combined"] - current_42
+    if gain > NOISE and (s["setting"] not in winners or gain > winners[s["setting"]][1]):
+        winners[s["setting"]] = (s, gain)
+ranked = sorted(winners.values(), key=lambda x: -x[1])
+print("Settings that beat the current config by more than", NOISE, ":",
+      ", ".join(f"{s['name']} ({g:+.2f})" for s, g in ranked) or "none")
+
+def combine(specs):
+    return spec("combo: " + " + ".join(s["name"] for s in specs), "combination",
+                model={k: v for s in specs for k, v in s["model"].items()},
+                train={k: v for s in specs for k, v in s["train"].items()})
+
+COMBOS = []
+if len(ranked) >= 2:
+    COMBOS.append(combine([s for s, _ in ranked]))
+if len(ranked) >= 3:
+    COMBOS.append(combine([s for s, _ in ranked[:2]]))
+if not COMBOS:
+    print("Fewer than two settings qualify: no combination run.")
+combos = {}
+for s in COMBOS:
+    total, _ = params_of(s)
+    assert total <= PARAM_LIMIT, (s["name"], total)
+    combos[s["name"]] = run_config(s, seed=42)
+if combos:
+    display(table(list(combos.values()), reference=current_42))
+''')
+
+# ----------------------------------------------------------------------------- T3. epoch cap
+md(r'''
+## T3. Epoch cap
+
+A config is rerun with 60 epochs when its best epoch is in the last 5 epochs **and** its seed-42 dev combined is
+within 0.3 of the best config so far (T1 + T2). Training is deterministic and uses no learning-rate schedule, so the
+first 40 epochs of the 60-epoch run must match the 40-epoch run exactly. This is asserted, and the 60-epoch result
+replaces the 40-epoch one from here on. Both results are reported.
+''')
+
+code(r'''
+candidates = {**sweep, **combos}
+best_so_far = max(r["dev combined"] for r in candidates.values())
+to_extend = [r for r in candidates.values() if r["late best"] and best_so_far - r["dev combined"] <= NOISE]
+print(f"Best seed-42 dev combined so far: {best_so_far:.2f}")
+print("Configs to extend to 60 epochs:", ", ".join(r["config"] for r in to_extend) or "none")
+
+DEV_COLS = ["dev_loss", "dev_intent_correct", "dev_tp", "dev_fp", "dev_fn"]
+extended = {}
+for r40 in to_extend:
+    r60 = run_config(r40["spec"], seed=42, epochs=EXTENDED_EPOCHS)
+    first40 = r60["history"].loc[1:TRAIN_CONFIG["epochs"], DEV_COLS]
+    assert first40.equals(r40["history"][DEV_COLS]), "first 40 epochs of the 60-epoch run differ"
+    extended[r40["config"]] = r60
+    print(f"  first {TRAIN_CONFIG['epochs']} epochs identical to the 40-epoch run")
+if extended:
+    display(table([r for name in extended for r in (candidates[name], extended[name])], reference=current_42))
+
+# The representative seed-42 result of each config: the 60-epoch run where one exists.
+representative = {name: extended.get(name, r) for name, r in candidates.items()}
+''')
+
+# ----------------------------------------------------------------------------- T4. seed check
+md(r'''
+## T4. Seed check and final pick
+
+The top 3 configs other than the current one, by seed-42 dev combined, are rerun with seeds 43 and 44 (with 60 epochs
+if they were extended in T3). The reference row is the current config: its seed-42 run from T1, plus its seed-43 and
+seed-44 best-combined results, read from the saved outputs of `ablations.ipynb`. Those printed values are rounded to
+two decimals, a difference far below the 0.3 threshold. The seed-42 line printed there is checked against T1.
+All means are over 3 seeds and std is the sample std (ddof = 1).
+''')
+
+code(r'''
+import nbformat
+
+def ablation_best_combined(path="ablations.ipynb", variant="full (char + CRF)"):
+    """Best-combined results of one variant per seed, parsed from the saved outputs of ablations.ipynb."""
+    nb = nbformat.read(path, as_version=4)
+    text = "".join(o.get("text", "") for c in nb.cells if c.cell_type == "code"
+                   for o in c.get("outputs", []) if o.output_type == "stream")
+    found, seed = {}, None
+    for line in text.splitlines():
+        m = re.match(r"=== (.+) \| seed (\d+) ===", line)
+        if m:
+            seed = int(m.group(2)) if m.group(1) == variant else None
+            continue
+        m = re.match(r"best combined: epoch\s+(\d+) \| intent acc ([\d.]+) \| slot F1 ([\d.]+) \| combined ([\d.]+)", line)
+        if m and seed is not None:
+            found[seed] = {"best epoch": int(m.group(1)), "dev intent acc": float(m.group(2)),
+                           "dev slot F1": float(m.group(3)), "dev combined": float(m.group(4))}
+    return found
+
+reference_runs = ablation_best_combined()
+assert sorted(reference_runs) == [42, 43, 44], reference_runs
+c42 = sweep[CURRENT]
+assert reference_runs[42]["best epoch"] == c42["best epoch"]
+for k in ("dev intent acc", "dev slot F1", "dev combined"):
+    assert reference_runs[42][k] == round(c42[k], 2), (k, reference_runs[42][k], c42[k])
+print("ablations.ipynb seed-42 line matches T1's current-config run.")
+for seed in (43, 44):
+    print(f"reference seed {seed} (from ablations.ipynb): {reference_runs[seed]}")
+''')
+
+code(r'''
+ranking = sorted((r for name, r in representative.items() if name != CURRENT), key=lambda r: -r["dev combined"])
+top = ranking[:3]
+print("Seed check for:", ", ".join(f"{r['config']} ({r['dev combined']:.2f}, {r['epochs']} epochs)" for r in top))
+seed_runs = {r["config"]: {42: r} for r in top}
+for r in top:
+    for seed in (43, 44):
+        seed_runs[r["config"]][seed] = run_config(r["spec"], seed=seed, epochs=r["epochs"])
+''')
+
+code(r'''
+def mean_std(values):
+    v = np.asarray(values, dtype=float)
+    return v.mean(), v.std(ddof=1)
+
+reference = {42: {k: c42[k] for k in ("best epoch", "dev intent acc", "dev slot F1", "dev combined")},
+             43: reference_runs[43], 44: reference_runs[44]}
+ref_mean, _ = mean_std([reference[s]["dev combined"] for s in (42, 43, 44)])
+
+rows = []
+for name, per_seed, epochs in [(CURRENT + " [reference]", reference, TRAIN_CONFIG["epochs"])] + \
+                              [(n, runs, runs[42]["epochs"]) for n, runs in seed_runs.items()]:
+    row = {"config": name, "epochs": epochs,
+           "best epoch (42 / 43 / 44)": " / ".join(str(per_seed[s]["best epoch"]) for s in (42, 43, 44)),
+           "combined (42 / 43 / 44)": " / ".join(f"{per_seed[s]['dev combined']:.2f}" for s in (42, 43, 44))}
+    for k in ("dev intent acc", "dev slot F1", "dev combined"):
+        m, sd = mean_std([per_seed[s][k] for s in (42, 43, 44)])
+        row[k] = f"{m:.2f} ± {sd:.2f}"
+        if k == "dev combined":
+            row["_mean"] = m
+    row["Δ mean combined vs reference"] = f"{row['_mean'] - ref_mean:+.2f}"
+    rows.append(row)
+final_df = pd.DataFrame(rows).set_index("config")
+display(final_df.drop(columns="_mean"))
+
+challenger = max((r for r in rows[1:]), key=lambda r: r["_mean"])
+margin = challenger["_mean"] - ref_mean
+print(f"Best 3-seed mean among the challengers: {challenger['config']} ({challenger['_mean']:.2f}), "
+      f"{margin:+.2f} vs the current config ({ref_mean:.2f}).")
+if margin > NOISE:
+    print(f"RULE OUTCOME: {challenger['config']} beats the current config by more than {NOISE} -> it becomes the final config.")
+else:
+    print(f"RULE OUTCOME: no config beats the current config by more than {NOISE} -> keep the current Stage-1 config.")
+print(f"\nTotal GPU time for all tuning runs: {sum(r['run time (min)'] for r in results) / 60:.2f} h ({len(results)} runs)")
+''')
+
 # ----------------------------------------------------------------------------- write
 REPO = Path(__file__).resolve().parent.parent
 target = sys.argv[1] if len(sys.argv) > 1 else "all"
 out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else REPO
-if target not in (MAIN, ABLATIONS, "all"):
-    sys.exit(f"unknown notebook '{target}' (main, ablations or all)")
-for name in ([MAIN, ABLATIONS] if target == "all" else [target]):
+if target not in (MAIN, ABLATIONS, TUNING, "all"):
+    sys.exit(f"unknown notebook '{target}' (main, ablations, tuning or all)")
+for name in ([MAIN, ABLATIONS, TUNING] if target == "all" else [target]):
     nb = new_notebook(cells=[cell for notebooks, cell in cells if name in notebooks])
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     nb.metadata["language_info"] = {"name": "python"}
