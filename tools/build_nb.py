@@ -41,7 +41,8 @@ Notebook layout:
 6. Stage-1 model: joint BiLSTM with character CNN and CRF
 7. Model checks: parameter budget, CRF against brute force, overfitting a small batch
 8. Training the Stage-1 system (seed 42) with per-epoch dev evaluation and three best-so-far checkpoints
-9. Final-evaluation function: reload each checkpoint and verify its dev scores
+9. Final evaluation: reload each checkpoint and verify its dev scores, then evaluate the selected checkpoint on
+   test once, and print the Stage-1 results table
 
 Dev-only ablations (other model variants and seeds) are in the separate notebook `ablations.ipynb`, and the
 hyperparameter search (dev only) is in `tuning.ipynb`.
@@ -121,6 +122,24 @@ The 0.3 threshold is the noise level seen so far: the full model's seed-to-seed 
 epoch-to-epoch jitter about 0.2–0.3 (see `ablations.ipynb`).
 
 Layout: 0–8 shared code · T1 sweep · T2 combination · T3 epoch cap · T4 seed check and final pick.
+''')
+
+md(r'''
+## Findings
+
+Written after the search finished. Every number behind these statements is computed below (T1–T4).
+
+- **The current Stage-1 config stays.** No single change beat it on seed 42 by more than the 0.3 noise threshold,
+  so nothing was combined. In the seed check, none of the three challengers beat its 3-seed mean dev combined by
+  more than 0.3.
+- **Higher slot F1, but not higher combined.** lr 5e-4, word dropout 0.25 and batch 16 all have a higher 3-seed
+  mean dev slot F1 than the current config. For lr 5e-4 and word dropout 0.25 it is higher on every seed; for
+  batch 16, on two of the three. Their intent accuracy is similar or lower (batch 16 is higher on average but varies
+  more across seeds), so their combined score stays within noise of the current config.
+- **Clearly worse on seed 42** (by more than the threshold): three BiLSTM layers, lower dropout (0.3 or 0.4), a
+  higher learning rate (2e-3), a smaller hidden size (128) and no word dropout.
+- **The 40-epoch cap is not limiting.** The two configs extended to 60 epochs (hidden 384, word dropout 0.25)
+  reached no higher dev combined after epoch 40.
 ''')
 
 scope(MAIN, ABLATIONS, TUNING)
@@ -1144,8 +1163,9 @@ No training happens.
 For each of the three checkpoints, the dev scores are recomputed and must exactly equal the ones logged during
 training: same number of correct intents and same TP/FP/FN, so the percentages are identical too.
 
-**The test split stays locked** (`TEST_UNLOCKED = False`) until one selection rule has been chosen on dev. Only
-then will the chosen checkpoint be evaluated on test, once.
+**The test split is locked** (`TEST_UNLOCKED = False`) for everything in this section except the final test cell.
+It is unlocked only after the selected checkpoint has been proven to be the one compared on dev throughout, and that
+checkpoint is then evaluated on test exactly once.
 ''')
 
 code(r'''
@@ -1180,7 +1200,9 @@ md(r'''
 ### Selected Stage-1 checkpoint
 
 **Selection rule: best dev combined score.** It was chosen after the dev results above were reviewed. In this run
-all three rules pick the same epoch, so the choice does not change which weights are used.
+all three rules pick the same epoch, so the choice does not change which weights are used. The configuration was
+confirmed on dev by the hyperparameter search in `tuning.ipynb`: no alternative beat it by more than the 0.3
+noise threshold on a 3-seed mean.
 ''')
 
 code(r'''
@@ -1191,10 +1213,55 @@ print(f"  epoch {stage1_selected['epoch']} | dev {format_scores(stage1_selected[
 ''')
 
 md(r'''
-### Test evaluation
+### Test evaluation (run once)
 
-Pending: the test split is still locked (`TEST_UNLOCKED = False`). The selected checkpoint above will be evaluated on
-test once, as the final step.
+Before test is unlocked, the selected checkpoint is checked against the model compared on dev throughout this
+project (this notebook, `ablations.ipynb` and `tuning.ipynb`): epoch 26 with 1,768 correct dev intents, TP 1,670,
+FP 415 and FN 341. The check covers both the in-memory record of this run and the checkpoint file itself, re-scored on
+dev. Only then is `TEST_UNLOCKED` set and the checkpoint evaluated on test, once, with no further training.
+''')
+
+code(r'''
+COMPARED_MODEL = {"epoch": 26, "intent_correct": 1768, "tp": 1670, "fp": 415, "fn": 341}
+
+def identity(epoch, scores):
+    return {"epoch": epoch, **{k: scores[k] for k in ("intent_correct", "tp", "fp", "fn")}}
+
+assert identity(stage1_selected["epoch"], stage1_selected["dev_scores"]) == COMPARED_MODEL
+dev_scores, dev_ckpt = final_eval(stage1_selected["path"], "dev")
+assert identity(dev_ckpt["epoch"], dev_ckpt["dev_scores"]) == COMPARED_MODEL     # what the file says about itself
+assert identity(dev_ckpt["epoch"], dev_scores) == COMPARED_MODEL                 # what the file actually scores
+print(f"Checkpoint identity verified: {stage1_selected['path']} is epoch 26 with dev correct=1768 TP=1670 FP=415 FN=341")
+
+TEST_UNLOCKED = True
+test_scores, test_ckpt = final_eval(stage1_selected["path"], "test")
+assert test_ckpt["epoch"] == COMPARED_MODEL["epoch"] and test_scores["n"] == len(splits["test"]) == 2_974
+print(f"TEST ({test_scores['n']} utterances): {format_scores(test_scores)} | "
+      f"correct={test_scores['intent_correct']} TP={test_scores['tp']} FP={test_scores['fp']} FN={test_scores['fn']}")
+''')
+
+md(r'''
+### Stage-1 results table
+
+Generated from the scores above, in the report's format. The brief's "number of epochs" column is ambiguous, so it
+is shown two ways: the epoch of the selected checkpoint, and the total number of epochs trained.
+''')
+
+code(r'''
+total_params, trainable_params = test_ckpt["param_counts"]["total"], test_ckpt["param_counts"]["trainable"]
+check_model = build_model(test_ckpt["model_config"], Vocab(**test_ckpt["vocab"]))
+assert count_params(check_model) == (total_params, trainable_params) and total_params <= PARAM_LIMIT
+del check_model
+
+results_table = pd.DataFrame([
+    {"Model version": "Stage-1 system", "Split": split, "Total # parameters": f"{total_params:,}",
+     "Total # trainable parameters": f"{trainable_params:,}", "Intent accuracy (%)": f"{s['intent_acc']:.2f}",
+     "Slot micro-F1 (%)": f"{s['slot_f1']:.2f}", "Best epoch (selected checkpoint)": test_ckpt["epoch"],
+     "Epochs trained": test_ckpt["train_config"]["epochs"]}
+    for split, s in (("Validation", dev_scores), ("Test", test_scores))
+]).set_index(["Model version", "Split"])
+display(results_table)
+print(results_table.to_string())
 ''')
 
 # ----------------------------------------------------------------------------- A. ablation runs
