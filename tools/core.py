@@ -1441,3 +1441,398 @@ for r in abl_rows:
 json.dump(abl_rows, open("results/stage2_ablations.json", "w"), indent=1)
 import pandas as pd
 pd.DataFrame(abl_rows).round(2)
+
+# %% span_model
+MAX_SPAN = 10                     # the longest slot in the training split has 10 tokens
+TAG_TYPE = torch.tensor([0] + [slot_types.index(t[2:]) + 1 for t in tag_vocab.itos[1:]])   # tag id -> slot type id (0 = none)
+TAG_IS_B = torch.tensor([t.startswith("B-") for t in tag_vocab.itos])
+
+
+def gold_span_grid(tags, lengths, max_span=MAX_SPAN):
+    """Slot-type label for every candidate span (start i, width w) on a (B, T * max_span) grid; 0 means 'no slot'.
+    Gold spans are read from the BIO tags with the same rule as the scorer."""
+    B, T = tags.shape
+    grid = torch.zeros(B, T * max_span, dtype=torch.long)
+    tags, too_long = tags.cpu(), 0
+    for b, L in enumerate(lengths.tolist()):
+        start, cur = None, 0
+        for t in range(L + 1):
+            tid = int(tags[b, t]) if t < L else 0
+            typ = int(TAG_TYPE[tid])
+            if cur and (typ != cur or TAG_IS_B[tid]):           # the open span ends at t - 1
+                if t - start <= max_span:
+                    grid[b, start * max_span + (t - 1 - start)] = cur
+                else:
+                    too_long += 1
+                cur = 0
+            if typ and not cur:
+                start, cur = t, typ
+    return grid, too_long
+
+
+def best_spans(gains, max_span=MAX_SPAN):
+    """Exact choice of non-overlapping spans with the largest total gain (weighted interval scheduling).
+    gains[i][w] is the gain of the span starting at token i with width w + 1 (only positive gains are worth taking)."""
+    T = len(gains)
+    best, choice = [0.0] * (T + 1), [None] * (T + 1)
+    for end in range(1, T + 1):                                  # best[end]: best total over tokens 0 .. end-1
+        best[end], choice[end] = best[end - 1], None
+        for w in range(min(max_span, end)):
+            i = end - 1 - w
+            g = gains[i][w]
+            if g > 0 and best[i] + g > best[end]:
+                best[end], choice[end] = best[i] + g, (i, w)
+    spans, end = [], T
+    while end > 0:
+        if choice[end] is None:
+            end -= 1
+        else:
+            i, w = choice[end]
+            spans.append((i, w))
+            end = i
+    return spans[::-1], best[T]
+
+
+def _check_best_spans(trials=40, T=6, max_span=3):
+    import itertools
+    rng = random.Random(0)
+    for _ in range(trials):
+        gains = [[rng.uniform(-1, 1) for _ in range(max_span)] for _ in range(T)]
+        cands = [(i, w) for i in range(T) for w in range(max_span) if i + w < T]
+        top = 0.0
+        for r in range(1, T + 1):
+            for subset in itertools.combinations(cands, r):
+                cover = [t for i, w in subset for t in range(i, i + w + 1)]
+                if len(cover) == len(set(cover)):
+                    top = max(top, sum(gains[i][w] for i, w in subset))
+        valid = [[gains[i][w] if i + w < T else -1.0 for w in range(max_span)] for i in range(T)]
+        assert abs(best_spans(valid, max_span)[1] - top) < 1e-9
+    return True
+
+
+assert _check_best_spans()
+for name in ("train", "dev", "test"):
+    exs = data[name]
+    tags = pad2d([[tag_vocab.stoi[t] for t in e["tags"]] for e in exs])
+    grid, too_long = gold_span_grid(tags, torch.tensor([len(e["tags"]) for e in exs]))
+    rebuilt = []
+    for b, e in enumerate(exs):
+        nz = grid[b].nonzero().flatten().tolist()
+        rebuilt.append({(slot_types[int(grid[b, s]) - 1], " ".join(e["tokens"][s // MAX_SPAN:s // MAX_SPAN + s % MAX_SPAN + 1]))
+                        for s in nz})
+    f1 = slot_micro_f1(rebuilt, [e["gold_spans"] for e in exs])
+    print(f"{name}: gold spans recovered from the span grid -> slot F1 {f1:.2f} | slots longer than {MAX_SPAN} tokens: {too_long}")
+    if name == "train":
+        assert f1 == 100.0
+print("Span selection matches brute-force search over all non-overlapping span sets.")
+
+
+class UnitEncoder(nn.Module):
+    """The Stage 2 input layer and gated dilated CNN encoder, as a reusable module. Returns token states read at
+    each token's first unit, the token mask, and the pooled utterance vector."""
+
+    def __init__(self, cfg, feats, frozen):
+        super().__init__()
+        C = cfg["channels"]
+        self.frozen = frozen
+        self.task_emb = nn.Embedding(len(feats["units"]), cfg["task_dim"], padding_idx=0)
+        self.char_cnn = CharCNN(len(feats["chars"]))
+        self.ngram = nn.Embedding(feats["ngram_buckets"] + 1, cfg["ngram_dim"], padding_idx=0)
+        self.in_drop = nn.Dropout(cfg["dropout"])
+        self.proj = nn.Linear(frozen.embedding_dim + cfg["task_dim"] + self.char_cnn.out_dim + cfg["ngram_dim"], C)
+        self.blocks = nn.ModuleList([GLUBlock(C, d, 3, cfg["dropout"]) for d in cfg["dilations"]])
+        self.register_buffer("drop_p", feats["drop_p"])
+
+    def forward(self, batch):
+        ids, umask = batch["units"], batch["units"] != 0
+        m = umask.unsqueeze(2).float()
+        tids = ids
+        if self.training:
+            tids = ids.masked_fill((torch.rand(ids.shape, device=ids.device) < self.drop_p[ids]) & umask, 1)
+        g = batch["grams"]
+        x = torch.cat([self.frozen(batch["frozen"]), self.task_emb(tids), self.char_cnn(batch["chars"]),
+                       self.ngram(g).sum(2) / (g != 0).sum(2, keepdim=True).clamp(min=1)], dim=2)
+        x = self.proj(self.in_drop(x)) * m
+        for blk in self.blocks:
+            x = blk(x, m)
+        pooled = masked_mean_max(x, umask)
+        T = int(batch["lengths"].max())
+        h = x.gather(1, batch["first"][:, :T].unsqueeze(2).expand(-1, -1, x.size(2)))
+        tmask = torch.arange(T, device=x.device).unsqueeze(0) < batch["lengths"].to(x.device).unsqueeze(1)
+        return h, tmask, pooled
+
+
+class SpanNet(nn.Module):
+    """Joint model that classifies spans instead of tagging tokens.
+    1. Intent (first pass) from the pooled utterance vector.
+    2. Every span of up to MAX_SPAN tokens is represented by [first token ; last token ; mean ; width embedding],
+       after adding the expected intent embedding to the token states, and classified as one of 55 slot types or 'none'.
+    3. Slot to intent: the expected number of spans of each slot type is fed back into the intent head.
+    Decoding picks the best set of non-overlapping spans exactly (best_spans)."""
+
+    def __init__(self, cfg, feats, frozen):
+        super().__init__()
+        self.cfg, C = cfg, cfg["channels"]
+        self.encoder = UnitEncoder(cfg, feats, frozen)
+        self.drop = nn.Dropout(cfg["dropout"])
+        self.intent_hidden = nn.Sequential(nn.Linear(2 * C, C), nn.ReLU())
+        self.intent_out = nn.Linear(C, len(intent_vocab))
+        self.intent_label_emb = nn.Embedding(len(intent_vocab), C)
+        self.width_emb = nn.Embedding(MAX_SPAN, cfg["width_dim"])
+        self.span_head = nn.Sequential(nn.Linear(3 * C + cfg["width_dim"], C), nn.ReLU(), nn.Dropout(cfg["dropout"]),
+                                       nn.Linear(C, len(slot_types) + 1))
+        self.slot_to_intent = nn.Linear(len(slot_types), C) if cfg["slot_feedback"] else None
+        w = torch.ones(len(slot_types) + 1)
+        w[0] = cfg["none_weight"]
+        self.register_buffer("class_weight", w)
+
+    def spans(self, T, device):
+        i = torch.arange(T, device=device).repeat_interleave(MAX_SPAN)
+        w = torch.arange(MAX_SPAN, device=device).repeat(T)
+        return i, w, (i + w).clamp(max=T - 1)
+
+    def compute(self, batch):
+        h, tmask, pooled = self.encoder(batch)
+        B, T, C = h.shape
+        z0 = self.intent_hidden(pooled)
+        logits0 = self.intent_out(self.drop(z0))
+        h = h + (F.softmax(logits0, 1) @ self.intent_label_emb.weight).unsqueeze(1)
+        i, w, j = self.spans(T, h.device)
+        valid = (i + w < T).unsqueeze(0) & tmask.gather(1, (i + w).clamp(max=T - 1).unsqueeze(0).expand(B, -1))
+        csum = torch.cat([torch.zeros(B, 1, C, device=h.device), h.cumsum(1)], dim=1)
+        mean = (csum[:, j + 1] - csum[:, i]) / (w + 1).unsqueeze(0).unsqueeze(2).float()
+        rep = torch.cat([h[:, i], h[:, j], mean, self.width_emb(w).unsqueeze(0).expand(B, -1, -1)], dim=2)
+        span_logits = self.span_head(self.drop(rep))                                   # (B, S, 56)
+        out = {"span_logits": span_logits, "span_valid": valid, "mask": tmask, "logits0": logits0}
+        logits = logits0
+        if self.slot_to_intent is not None:
+            probs = F.softmax(span_logits, 2)[:, :, 1:] * valid.unsqueeze(2).float()
+            summary = torch.log1p(probs.sum(1))                                          # expected count per slot type
+            logits = self.intent_out(self.drop(z0 + self.slot_to_intent(summary)))
+        out["intent_logits"] = logits
+        out["z"] = z0
+        return out
+
+    def loss(self, batch, out):
+        cfg = self.cfg
+        grid, _ = gold_span_grid(batch["tags"], batch["lengths"])
+        grid = grid[:, :out["span_logits"].size(1)].to(out["span_logits"].device)
+        ce = F.cross_entropy(out["span_logits"].transpose(1, 2), grid, weight=self.class_weight, reduction="none")
+        span_loss = (ce * out["span_valid"].float()).sum() / ce.size(0)
+        loss = F.cross_entropy(out["intent_logits"], batch["intent"], label_smoothing=cfg["label_smoothing"])
+        if self.slot_to_intent is not None:
+            loss = loss + 0.5 * F.cross_entropy(out["logits0"], batch["intent"], label_smoothing=cfg["label_smoothing"])
+        return loss + cfg["slot_weight"] * span_loss
+
+    def decode(self, batch, out):
+        return decode_spans(F.softmax(out["intent_logits"], 1), F.softmax(out["span_logits"], 2), out["span_valid"],
+                            batch["lengths"])
+
+
+def decode_spans(intent_probs, span_probs, valid, lengths):
+    """Intent = argmax; slots = best non-overlapping spans by gain log p(type) - log p(none), returned as BIO tag paths."""
+    logp = torch.log(span_probs.clamp(min=1e-12)).cpu()
+    best_type = logp[:, :, 1:].argmax(2) + 1
+    gain = (logp.gather(2, best_type.unsqueeze(2)).squeeze(2) - logp[:, :, 0]).masked_fill(~valid.cpu(), -1.0)
+    paths = []
+    for b, L in enumerate(lengths.tolist()):
+        g = gain[b].view(-1, MAX_SPAN)[:L].tolist()
+        chosen, _ = best_spans(g)
+        tags = ["O"] * L
+        for i, w in chosen:
+            typ = slot_types[int(best_type[b, i * MAX_SPAN + w]) - 1]
+            tags[i] = f"B-{typ}"
+            for t in range(i + 1, i + w + 1):
+                tags[t] = f"I-{typ}"
+        paths.append([tag_vocab.stoi[t] for t in tags])
+    return intent_probs.argmax(1).tolist(), paths
+
+
+class SpanEnsemble(nn.Module):
+    """SpanNet members sharing one frozen word-vector table: intent and span probabilities are averaged."""
+
+    def __init__(self, members):
+        super().__init__()
+        self.members = nn.ModuleList(members)
+
+    def compute(self, batch):
+        outs = [m.compute(batch) for m in self.members]
+        return {"members": outs, "mask": outs[0]["mask"], "span_valid": outs[0]["span_valid"],
+                "intent_probs": torch.stack([F.softmax(o["intent_logits"], 1) for o in outs]).mean(0),
+                "span_probs": torch.stack([F.softmax(o["span_logits"], 2) for o in outs]).mean(0)}
+
+    def loss(self, batch, out):
+        return torch.stack([m.loss(batch, o) for m, o in zip(self.members, out["members"])]).mean()
+
+    def decode(self, batch, out):
+        return decode_spans(out["intent_probs"], out["span_probs"], out["span_valid"], batch["lengths"])
+
+# %% span_inputs
+SPAN_CONFIG = dict(channels=192, dilations=[1, 2, 4, 8, 1, 2], dropout=0.4, task_dim=100, ngram_dim=50,
+                   ngram_buckets=5000, top_k=2000, width_dim=32, slot_feedback=True, none_weight=1.0,
+                   label_smoothing=0.1, slot_weight=1.0, lr=1e-3, weight_decay=0.01, batch_size=32, max_epochs=40,
+                   schedule="cosine", warmup_epochs=1, swa_start=30, early_stop=100, clip=5.0, word_drop_alpha=0.25)
+# The final Stage 2 configuration of branch DanFeng-both (CRF tagger), trained once below as the reference.
+S2_REF = dict(channels=192, dilations=[1, 2, 4, 8, 1, 2], dropout=0.4, task_dim=100, use_char=True, ngram_dim=50,
+              ngram_buckets=5000, use_frozen=True, attn_layers=0, attn_heads=4, hier=True, scen_weight=0.5,
+              intent_aware=True, bio_constraints=True, label_smoothing=0.1, slot_weight=1.0, lr=1e-3, weight_decay=0.01,
+              batch_size=32, max_epochs=40, schedule="cosine", warmup_epochs=1, swa_start=30, early_stop=100, clip=5.0,
+              joint_k=1, slot_mask=False, word_drop_alpha=0.25)
+span_units = {u for e in data["train"] for t in e["tokens"] for u in clitic_units(t)}
+glove_sp, glove_top_sp = read_vectors(ensure_glove(), needed_keys(span_units), top_k=SPAN_CONFIG["top_k"])
+fasttext_sp, _ = read_vectors(ensure_fasttext(), needed_keys(span_units) | set(glove_top_sp))
+feats_sp = build_stage2_features(data["train"], clitic_units, {"glove": glove_sp, "fasttext": fasttext_sp}, glove_top_sp,
+                                 SPAN_CONFIG["word_drop_alpha"], SPAN_CONFIG["ngram_buckets"])
+feats_sp["allowed_tags"] = slot_types_per_intent(data["train"])
+coverage_report(feats_sp, data["dev"], "dev")
+train_sp = encode_stage2(data["train"], feats_sp)
+dev_sp_batches = make_batches(encode_stage2(data["dev"], feats_sp), 256, shuffle=False)
+frozen_sp = make_frozen_embedding(feats_sp["table"]).to(DEVICE)
+
+
+def slot_f1_by_length(pred_spans, examples):
+    """Slot micro-F1 restricted to gold and predicted spans of 1, 2 and 3+ tokens."""
+    out = {}
+    for name, lo, hi in (("1 token", 1, 1), ("2 tokens", 2, 2), ("3+ tokens", 3, 99)):
+        g = [{s for s in e["gold_spans"] if lo <= len(s[1].split()) <= hi} for e in examples]
+        p = [{s for s in ps if lo <= len(s[1].split()) <= hi} for ps in pred_spans]
+        out[name] = slot_micro_f1(p, g)
+    return out
+
+# %% span_trial
+def train_span(over, seed, path, verbose=False):
+    cfg = {**SPAN_CONFIG, **over, "seed": seed}
+    set_seed(seed)
+    m = SpanNet(cfg, feats_sp, frozen_sp).to(DEVICE)
+    hist, best = fit(m, cfg, train_sp, dev_sp_batches, data["dev"], path, verbose)
+    m.load_state_dict(torch.load(path, map_location=DEVICE, weights_only=False)["state"])
+    return m, hist, best
+
+
+def dev_row(label, model):
+    intents, tags = predict_tags(model, dev_sp_batches, data["dev"])
+    spans = [tags_to_spans(e["tokens"], t) for e, t in zip(data["dev"], tags)]
+    s = score(intents, spans, data["dev"])
+    return {"model": label, "intent_acc": s["intent_acc"], "slot_f1": s["slot_f1"], "combined": s["combined"],
+            **{f"slot F1, {k}": v for k, v in slot_f1_by_length(spans, data["dev"]).items()}}
+
+
+trial_rows = []
+set_seed(42)
+crf_ref = Stage2Net({**S2_REF, "seed": 42}, feats_sp, frozen_sp).to(DEVICE)
+fit(crf_ref, crf_ref.cfg, train_sp, dev_sp_batches, data["dev"], os.path.join(CKPT_DIR, "span_trial_crf.pt"), verbose=False)
+crf_ref.load_state_dict(torch.load(os.path.join(CKPT_DIR, "span_trial_crf.pt"), map_location=DEVICE, weights_only=False)["state"])
+trial_rows.append(dev_row("CRF tagger (DanFeng-both member)", Ensemble([crf_ref])))
+for label, over in [("span decoder, no slot-to-intent feedback", {"slot_feedback": False}),
+                    ("span decoder + feedback, 'none' weight 0.3", {"none_weight": 0.3})]:
+    m, _, _ = train_span(over, 42, os.path.join(CKPT_DIR, "span_trial.pt"))
+    trial_rows.append(dev_row(label, m))
+    print(f"trained: {label}")
+
+# %% span_build
+SPAN_SEEDS = [42, 43, 44, 45, 46, 47]
+span_members = []
+for seed in SPAN_SEEDS:
+    set_seed(seed)
+    span_members.append(SpanNet({**SPAN_CONFIG, "seed": seed}, feats_sp, frozen_sp).to(DEVICE))
+span_system = SpanEnsemble(span_members)
+print(span_members[0])
+total_sp, trainable_sp = count_params(span_system)
+print(f"\nSpan system: {len(span_members)} members x {count_params(span_members[0])[1]:,} trainable + one shared frozen "
+      f"table of {feats_sp['table'].numel():,} word-vector values")
+print(f"Span system parameters: total {total_sp:,} | trainable {trainable_sp:,}")
+assert total_sp <= 20_000_000, "over the 20M parameter cap"
+print("Within the 20M cap.")
+
+# %% span_train
+hist_sp, best_sp = [], []
+for k, (seed, member) in enumerate(zip(SPAN_SEEDS, span_members)):
+    print(f"\n=== Member {k} (seed {seed}) ===")
+    path = os.path.join(CKPT_DIR, f"span_member{k}.pt")
+    h, b = fit(member, member.cfg, train_sp, dev_sp_batches, data["dev"], path)
+    member.load_state_dict(torch.load(path, map_location=DEVICE, weights_only=False)["state"])
+    hist_sp.append(h)
+    best_sp.append(b)
+    print(f"Member {k}: selected epoch {b['epoch']} ({'weight average' if b['kind'] == 'swa' else 'single epoch'}) | "
+          f"dev combined {b['combined']:.2f} | training time {b['train_time_s'] / 60:.1f} min")
+os.makedirs("results", exist_ok=True)
+json.dump(hist_sp, open("results/span_histories.json", "w"), indent=1)
+
+# %% span_select
+trial_rows.insert(1, dev_row("span decoder + feedback (seed 42 member)", span_members[0]))
+size_rows = []
+for n in range(1, len(span_members) + 1):
+    r = evaluate(SpanEnsemble(span_members[:n]), dev_sp_batches, data["dev"])
+    size_rows.append({"members": n, "intent_acc": r["intent_acc"], "slot_f1": r["slot_f1"], "combined": r["combined"]})
+import pandas as pd
+print("Design comparison on the validation split (seed 42):")
+print(pd.DataFrame(trial_rows).round(2).to_string(index=False))
+print("\nEnsemble size on the validation split:")
+print(pd.DataFrame(size_rows).round(2).to_string(index=False))
+dev_res_sp = evaluate(span_system, dev_sp_batches, data["dev"])
+SPAN_CKPT = os.path.join(CKPT_DIR, "span_best.pt")
+SPAN_EPOCHS = "/".join(str(b["epoch"]) for b in best_sp)
+torch.save({"state": span_system.state_dict(), "config": SPAN_CONFIG, "seeds": SPAN_SEEDS, "member_best": best_sp,
+            "dev": dev_res_sp}, SPAN_CKPT)
+json.dump({"trial": trial_rows, "ensemble_size": size_rows}, open("results/span_dev_design.json", "w"), indent=1)
+print(f"\nSelected span checkpoint: {len(span_members)}-member ensemble | member epochs {SPAN_EPOCHS} | "
+      f"dev intent acc {dev_res_sp['intent_acc']:.2f} | dev slot F1 {dev_res_sp['slot_f1']:.2f} | "
+      f"dev combined {dev_res_sp['combined']:.2f} | file {SPAN_CKPT}")
+
+# %% span_curves
+fig, ax = plt.subplots(1, 3, figsize=(17, 3.8))
+for k, h in enumerate(hist_sp):
+    ep = [r["epoch"] for r in h]
+    ax[0].plot(ep, [r["train_loss"] for r in h], color=f"C{k}", label=f"member {k} train")
+    ax[0].plot(ep, [r["dev_loss"] for r in h], color=f"C{k}", ls="--")
+    ax[1].plot(ep, [r["dev_intent_acc"] for r in h], color=f"C{k}", label=f"member {k}")
+    ax[2].plot(ep, [r["dev_slot_f1"] for r in h], color=f"C{k}", label=f"member {k}")
+for a, title, yl in zip(ax, ["Span model: loss (solid train, dashed validation)", "Validation intent accuracy",
+                             "Validation slot micro-F1"], ["loss", "%", "%"]):
+    a.set_title(title); a.set_xlabel("epoch"); a.set_ylabel(yl)
+ax[1].legend(fontsize=7)
+plt.tight_layout(); plt.savefig(os.path.join(FIG_DIR, "span_learning_curves.png"), dpi=150); plt.show()
+
+# %% span_final
+ck_sp = torch.load(SPAN_CKPT, map_location=DEVICE, weights_only=False)
+frozen_sp_eval = make_frozen_embedding(torch.zeros_like(feats_sp["table"])).to(DEVICE)   # weights come from the checkpoint
+span_final = SpanEnsemble([SpanNet({**ck_sp["config"], "seed": s}, feats_sp, frozen_sp_eval) for s in ck_sp["seeds"]]).to(DEVICE)
+span_final.load_state_dict(ck_sp["state"])
+dev_check_sp = evaluate(span_final, dev_sp_batches, data["dev"])
+for key in ("intent_correct", "tp", "fp", "fn"):
+    assert dev_check_sp[key] == ck_sp["dev"][key], f"reloaded checkpoint disagrees with the selected system on {key}"
+print(f"Reloaded {SPAN_CKPT}: validation scores identical to the selected system.")
+
+TEST_UNLOCKED["stage2"] = True            # the span system is frozen from here on
+check_split_allowed("test", "stage2")
+test_sp_batches = make_batches(encode_stage2(data["test"], feats_sp), 256, shuffle=False)
+test_res_sp = evaluate(span_final, test_sp_batches, data["test"])
+for split, r in (("Validation", dev_check_sp), ("Test", test_res_sp)):
+    print(f"Span system | {split:<10} | intent accuracy {r['intent_acc']:.2f} | slot micro-F1 {r['slot_f1']:.2f} | "
+          f"TP {r['tp']} FP {r['fp']} FN {r['fn']}")
+
+# %% span_table
+t_sp, tr_sp = count_params(span_final)
+rows = [{"Model version": "Stage-2 system (span-based)", "Split": split, "Total # parameters": f"{t_sp:,}",
+         "Total # trainable parameters": f"{tr_sp:,}", "Intent accuracy (%)": f"{r['intent_acc']:.2f}",
+         "Slot micro-F1 (%)": f"{r['slot_f1']:.2f}", "Number of epochs": SPAN_EPOCHS}
+        for split, r in (("Validation", dev_check_sp), ("Test", test_res_sp))]
+span_table = pd.DataFrame(rows)
+span_table.to_csv("results/span_results_table.csv", index=False)
+json.dump({"dev": dev_check_sp, "test": test_res_sp, "params": [t_sp, tr_sp], "epochs": SPAN_EPOCHS},
+          open("results/span_final_scores.json", "w"), indent=1)
+span_table
+
+# %% span_error_analysis
+sp_test_intents, sp_test_tags = predict_tags(span_final, test_sp_batches, data["test"])
+sp_test_spans = [tags_to_spans(e["tokens"], t) for e, t in zip(data["test"], sp_test_tags)]
+diag_sp = diagnose(sp_test_intents, sp_test_tags, data["test"], data["train"], feats_sp["units"], clitic_units)
+print("\nTest slot F1 by gold span length:", {k: round(v, 2) for k, v in slot_f1_by_length(sp_test_spans, data["test"]).items()})
+json.dump(diag_sp, open("results/span_test_diagnosis.json", "w"), indent=1, default=str)
+print("\nExample errors on the test split (gold vs predicted):")
+shown = 0
+for e, pi, ps in zip(data["test"], sp_test_intents, sp_test_spans):
+    if (pi != e["intent"] or ps != e["gold_spans"]) and shown < 10:
+        print(f"- '{e['utt']}'\n    intent gold {e['intent']} | predicted {pi}"
+              f"\n    slots  gold {sorted(e['gold_spans'])}\n           pred {sorted(ps)}")
+        shown += 1

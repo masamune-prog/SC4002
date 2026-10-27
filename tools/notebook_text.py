@@ -359,3 +359,92 @@ including the best single-epoch score and the best weight-averaged (SWA) score.
 """),
     ("code", "s2x_ablations"),
 ]
+
+LAYOUTS["span"] = [
+    ("md", """
+# A span-based joint model for MASSIVE (en-US): dilated CNN encoder, span classifier, two-way intent and slot coupling
+
+This notebook is a **Stage 2 variant** built to be methodologically different from the group's other systems, which
+all tag one word at a time (BIO tags) and decode with a CRF.
+
+| | Usual approach in the group | This notebook |
+|---|---|---|
+| Slot filling | one BIO tag per token, CRF decoding | every candidate span (up to 10 tokens) is classified as a slot type or "none"; the best non-overlapping set is chosen exactly by dynamic programming |
+| Intent and slots | intent informs slots (one way) | two way: the expected intent embedding informs the span classifier, and the expected number of spans of each slot type feeds back into the intent head |
+| Encoder | BiLSTM or Transformer | gated dilated CNN (the encoder of branch `DanFeng-both`) |
+
+**Why spans.** The metric only rewards a slot whose type *and* exact span are right. A tagger has to get every
+token's tag right and relies on transition scores to keep spans consistent; a span classifier scores the whole span
+at once, using its first word, last word, average and width. Every gold slot in all three splits is at most 10 tokens
+long (checked below), so nothing is lost by limiting spans to 10 tokens.
+
+**Why two-way coupling.** The error analysis of the CRF system found utterances whose slot was right but whose intent
+was wrong ("pink is all we need": `color_type` found, intent predicted as music). Feeding the detected slot types back
+into the intent head lets that evidence reach the intent decision.
+
+The test split is used once, in Section 10, after the system is frozen. All design comparisons use the validation split.
+"""),
+    *SHARED_SETUP,
+    ("md", """
+## 6. Building blocks reused from `main.ipynb`
+
+Word-vector loading, the character CNN, the shifted-copy convolution, the gated dilated block, Stage 2 tokenisation
+and features are reused unchanged from branch `DanFeng-both`. The CRF (Section 5) is used only by the reference
+CRF tagger in Section 8.
+"""),
+    ("code", "stage1_features"),
+    ("code", "stage1_model"),
+    ("code", "stage2_tokenise"),
+    ("code", "stage2_features"),
+    ("code", "stage2_model"),
+    ("code", "ensemble"),
+    ("code", "diagnosis"),
+    ("md", """
+## 7. The span-based model
+
+* `gold_span_grid` turns BIO tags into a label for every candidate span. The check below confirms that the grid
+  reproduces the gold slots exactly on every split, and that no slot is longer than 10 tokens.
+* `best_spans` chooses non-overlapping spans with the largest total gain, where a span's gain is
+  log p(best slot type) - log p(none); only spans with positive gain are worth taking. It is the classic weighted
+  interval scheduling dynamic programme, checked against brute force over every possible set of spans.
+* `SpanNet` (one member): the Stage 2 encoder gives a vector per token. A first intent prediction selects an expected
+  intent embedding that is added to every token. Each span (i, j) is represented by [h_i ; h_j ; mean of h_i..h_j ;
+  width embedding] and classified into 56 classes (55 slot types + none). The span probabilities are summed per slot
+  type (the expected number of slots of each type), passed through log(1 + x) and a linear layer, and added to the
+  intent hidden vector for the final intent prediction.
+* **Loss:** intent cross-entropy (label smoothing 0.1) on the final prediction, plus 0.5 x the same on the first
+  prediction, plus the span cross-entropy summed over all valid candidate spans of an utterance.
+* `SpanEnsemble`: members share the frozen word-vector table; intent and span probabilities are averaged, then the
+  same exact span selection is applied.
+"""),
+    ("code", "span_model"),
+    ("code", "span_inputs"),
+    ("md", """
+## 8. Design comparison (validation split, seed 42)
+
+Three models are trained here for comparison with the chosen design (whose seed-42 member is trained in Section 9):
+the CRF tagger of branch `DanFeng-both`, the span decoder without slot-to-intent feedback, and the span decoder with
+a lower weight (0.3) on the "none" class. Slot F1 is also broken down by the length of the gold span.
+"""),
+    ("code", "span_trial"),
+    ("md", """
+## 9. Training the span system (train split only)
+
+Six members (seeds 42 to 47), each trained exactly like the Stage 2 members of `main.ipynb`: AdamW, one warm-up epoch
+then cosine decay over 40 epochs, batch 32, dropout 0.4, and the better of "single epoch" and "weight average from
+epoch 30" by validation combined score.
+"""),
+    ("code", "span_build"),
+    ("code", "span_train"),
+    ("code", "span_select"),
+    ("code", "span_curves"),
+    ("md", """
+## 10. Final evaluation (reload, validation check, single test run)
+"""),
+    ("code", "span_final"),
+    ("code", "span_table"),
+    ("md", """
+## 11. Error analysis (test split, after freezing)
+"""),
+    ("code", "span_error_analysis"),
+]

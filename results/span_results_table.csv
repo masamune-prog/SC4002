@@ -1,0 +1,3 @@
+Model version,Split,Total # parameters,Total # trainable parameters,Intent accuracy (%),Slot micro-F1 (%),Number of epochs
+Stage-2 system (span-based),Validation,"18,601,092","15,078,492",88.10,83.51,37/23/36/36/34/33
+Stage-2 system (span-based),Test,"18,601,092","15,078,492",87.39,81.51,37/23/36/36/34/33

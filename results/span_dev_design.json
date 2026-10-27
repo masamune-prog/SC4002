@@ -1,0 +1,78 @@
+{
+ "trial": [
+  {
+   "model": "CRF tagger (DanFeng-both member)",
+   "intent_acc": 88.14559763895721,
+   "slot_f1": 82.03221809169764,
+   "combined": 85.08890786532743,
+   "slot F1, 1 token": 86.11544461778472,
+   "slot F1, 2 tokens": 78.26941986234021,
+   "slot F1, 3+ tokens": 67.40088105726872
+  },
+  {
+   "model": "span decoder + feedback (seed 42 member)",
+   "intent_acc": 87.55533694048205,
+   "slot_f1": 83.00863131935881,
+   "combined": 85.28198412992043,
+   "slot F1, 1 token": 87.37334372564302,
+   "slot F1, 2 tokens": 77.54318618042227,
+   "slot F1, 3+ tokens": 70.69351230425056
+  },
+  {
+   "model": "span decoder, no slot-to-intent feedback",
+   "intent_acc": 87.11264141662568,
+   "slot_f1": 82.17821782178218,
+   "combined": 84.64542961920392,
+   "slot F1, 1 token": 86.79098679098679,
+   "slot F1, 2 tokens": 77.2238514173998,
+   "slot F1, 3+ tokens": 66.81715575620767
+  },
+  {
+   "model": "span decoder + feedback, 'none' weight 0.3",
+   "intent_acc": 87.94884407279882,
+   "slot_f1": 81.099324975892,
+   "combined": 84.52408452434541,
+   "slot F1, 1 token": 85.31309297912713,
+   "slot F1, 2 tokens": 76.57572906867357,
+   "slot F1, 3+ tokens": 67.11111111111111
+  }
+ ],
+ "ensemble_size": [
+  {
+   "members": 1,
+   "intent_acc": 87.55533694048205,
+   "slot_f1": 83.00863131935881,
+   "combined": 85.28198412992043
+  },
+  {
+   "members": 2,
+   "intent_acc": 87.89965568125922,
+   "slot_f1": 82.65407554671968,
+   "combined": 85.27686561398946
+  },
+  {
+   "members": 3,
+   "intent_acc": 88.04722085587801,
+   "slot_f1": 83.445357231765,
+   "combined": 85.7462890438215
+  },
+  {
+   "members": 4,
+   "intent_acc": 88.1947860304968,
+   "slot_f1": 83.29177057356608,
+   "combined": 85.74327830203144
+  },
+  {
+   "members": 5,
+   "intent_acc": 88.1947860304968,
+   "slot_f1": 83.39980059820539,
+   "combined": 85.7972933143511
+  },
+  {
+   "members": 6,
+   "intent_acc": 88.09640924741761,
+   "slot_f1": 83.51209777999502,
+   "combined": 85.80425351370631
+  }
+ ]
+}

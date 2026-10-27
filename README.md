@@ -1,7 +1,8 @@
 # Joint intent detection and slot filling on MASSIVE (en-US) with dilated convolutional networks
 
-Branch `DanFeng-both` of the SC4002 group repository. Both stages of the assignment, built on a model family the rest
-of the group is not using: **dilated convolutional networks** (the group already has BiLSTM and Transformer systems).
+Branch `DanFeng-span` of the SC4002 group repository. It contains everything from `DanFeng-both` (both stages of the
+assignment, built on **dilated convolutional networks**, a model family the rest of the group is not using) plus a second,
+**span-based** Stage 2 system in `span.ipynb`, described in Section 8.
 
 ---
 
@@ -104,6 +105,39 @@ python tools/run_notebook.py stage2_experiments.ipynb   # optional, about 3.3 h
 * **Test lock.** `check_split_allowed` raises an error if the test split is scored before that stage's checkpoint is
   frozen. Each stage's checkpoint is reloaded into a fresh model, and its validation TP, FP, FN and correct-intent counts
   are asserted equal to the logged best before test is scored.
+
+### 4.1 Tokenisation
+
+MASSIVE utterances are already lower-cased, and the gold labels are defined on whitespace tokens, so every system
+starts from `utt.split()`. Predictions are always mapped back to these whitespace tokens, so the tokeniser never changes
+which spans can be predicted or how they are scored.
+
+| Step | Stage 1 | Stage 2 (CNN + CRF and CNN + span) |
+|---|---|---|
+| Model tokens | Whitespace tokens, unchanged | **Clitic split** of each whitespace token into units: `what's` becomes `what` + `'s`, `don't` becomes `do` + `n't`, `brother's` becomes `brother` + `'s`; a spelled-out letter `p.` becomes `p`. Other tokens (`o'clock`, `mr.`) are kept whole |
+| Why | Simple baseline | GloVe and fastText were trained on text tokenised this way, so `what` and `'s` have vectors while `what's` often does not. The split also lets the model see the same stem in `brother` and `brother's` |
+| Back to labels | One tag per token | Each whitespace token is represented by its **first unit**, so there is still exactly one prediction per gold token |
+| Word-vector lookup | For each token, try in order: the token, the token without surrounding punctuation, the token without dots, then the average of its parts when split at a clitic or at `-`, `.`, `/`, `&` | Same lookup, applied to units |
+| Characters | Character CNN over the characters of each token | Character CNN over each unit, plus **hashed character 3-to-5-grams** of `<unit>` (5,000 buckets, fastText style), so an unseen word still shares sub-word pieces with seen ones |
+| Rare and unseen words | Vocabulary from train only; unseen words map to `<unk>`; during training a word is replaced by `<unk>` with probability 0.25 / (0.25 + count) | Same word dropout on the trainable embedding; the frozen vector table also holds GloVe's 2,000 most frequent words, so an unseen test word can still get a pre-trained vector |
+
+Removing the clitic split costs 0.50 validation combined points (Section 6.2).
+
+### 4.2 Methods used, by system
+
+| | Stage 1 | Stage 2: CNN + CRF (`main.ipynb`) | Stage 2: CNN + span (`span.ipynb`) |
+|---|---|---|---|
+| Tokens | Whitespace | Clitic units (Section 4.1) | Clitic units (Section 4.1) |
+| Word input | 300-d GloVe-initialised embedding, fine-tuned | Frozen [GloVe ; fastText] 600-d table shared by all members + 100-d trainable embedding | Same as CNN + CRF |
+| Sub-word input | Character CNN | Character CNN + hashed character n-grams | Same as CNN + CRF |
+| Encoder | Iterated dilated CNN: dilation 1, 2, 4, applied twice with shared weights, 384 channels | Six residual gated (GLU) dilated convolutions, dilation 1, 2, 4, 8, 1, 2, 192 channels | Same as CNN + CRF |
+| Intent | Mean + max pooling, MLP | Mean + max pooling, intent + scenario heads | Mean + max pooling, first-pass intent, then final intent that also reads a soft count of predicted slot types |
+| Slots | Linear emissions, CRF, Viterbi | Expected intent embedding added to tokens, MLP, BIO-constrained CRF, Viterbi | Expected intent embedding added to tokens, every span of up to 10 tokens classified (55 types or none), exact dynamic-programming decoding |
+| Loss | Intent CE + CRF NLL | Intent CE (label smoothing 0.1) + 0.5 x scenario CE + CRF NLL | Final intent CE + 0.5 x first-pass intent CE (both with label smoothing 0.1) + span CE |
+| Training | AdamW, plateau halving, early stopping, up to 50 epochs | AdamW, 1 warm-up epoch + cosine over 40 epochs, weight-average candidate from epoch 30 | Same as CNN + CRF |
+| System | One model | Six seeds, averaged intent probabilities and CRF scores | Six seeds, averaged intent and span probabilities |
+| Parameters | 3,466,218 | 18,215,220 | 18,601,092 |
+| Selection | Validation combined score, test scored once | Same | Same |
 
 ---
 
@@ -263,11 +297,92 @@ kNN would also add more than 13M stored values, breaking the 20M cap. All three 
 
 ---
 
-## 8. Repository layout
+## 8. Span-based variant (`span.ipynb`)
+
+### 8.1 Why a second Stage 2 system
+
+Every Stage 2 system in the group, including the CNN ensemble above, follows the same recipe: word vectors and a
+character CNN feed an encoder, a BIO tagger with a CRF finds the slots, and information flows one way only (intent to
+slots). Changing the encoder (BiLSTM, CNN, Transformer) leaves that recipe intact. This variant changes the **slot
+formulation** and the **direction of the intent and slot interaction**, and keeps our own encoder and inputs.
+
+### 8.2 Method
+
+* **Encoder and inputs:** unchanged from Section 6.4 (clitic tokenisation, frozen GloVe + fastText table shared by all
+  members, task embedding, character CNN, hashed character n-grams, six gated dilated convolutions, 192 channels).
+* **Span classification instead of BIO + CRF:** every candidate span of up to 10 tokens is classified directly as one
+  of the 55 slot types or "none". No training slot is longer than 10 tokens, and converting gold BIO tags to spans and
+  back scores 100.00 on all three splits. A span (i, j) is represented as [h_i ; h_j ; mean(h_i..h_j) ; width embedding]
+  and passed through an MLP.
+* **Exact decoding:** the predicted slots are the set of non-overlapping spans that maximises the sum of
+  log p(type) - log p(none), found by dynamic programming (weighted interval scheduling). A unit test checks it against
+  brute force on random small cases.
+* **Two-way intent and slot interaction:**
+  * intent to slots: a first-pass intent distribution is turned into an expected intent embedding and added to the
+    token states before spans are scored;
+  * slots to intent: the span probabilities are summed per slot type (a soft count of each slot type in the
+    utterance), passed through log(1 + x) and a linear layer, and added to the intent layer that makes the final
+    intent prediction.
+* **Loss:** final intent cross-entropy + 0.5 x first-pass intent cross-entropy + span cross-entropy summed over
+  candidate spans. Training schedule as in Section 6.4.
+* **Ensemble:** six members differing only in seed. Intent and span probabilities are averaged, then the dynamic
+  programme runs once.
+* **Parameters:** 18,601,092 total (6 x 2,513,082 trainable + 3,522,600 frozen word-vector values), within the 20M cap.
+
+### 8.3 Design comparison (validation, single models, seed 42)
+
+| Model | Intent | Slot F1 | Combined | Slot F1, 1 token | 2 tokens | 3+ tokens |
+|---|---|---|---|---|---|---|
+| CRF tagger (Section 6.4 member) | 88.15 | 82.03 | 85.09 | 86.12 | 78.27 | 67.40 |
+| **Span decoder + slot-to-intent feedback** | 87.56 | 83.01 | **85.28** | 87.37 | 77.54 | **70.69** |
+| Span decoder, no feedback | 87.11 | 82.18 | 84.65 | 86.79 | 77.22 | 66.82 |
+| Span decoder + feedback, "none" weight 0.3 | 87.95 | 81.10 | 84.52 | 85.31 | 76.58 | 67.11 |
+
+* The span decoder helps where it was expected to: slots of 3 or more tokens gain about 3 F1 points over the CRF.
+* The slot-to-intent feedback is what makes the span model competitive (+0.63 combined over the span model without it).
+* Down-weighting "none" to fight class imbalance hurts slot F1, so all "none" spans keep weight 1.
+
+Ensemble size on validation (combined): 1: 85.28 | 2: 85.28 | 3: 85.75 | 4: 85.74 | 5: 85.80 | 6: 85.80.
+All six members were kept.
+
+### 8.4 Results (test scored once)
+
+| System | Validation | Val. combined | Test | Test combined | Parameters |
+|---|---|---|---|---|---|
+| Joy, Stage 2 (3 x BiLSTM-CRF) | 88.93 / 83.17 | 86.05 | 87.22 / 81.84 | 84.53 | 17.92M |
+| This branch, CNN + CRF ensemble (Section 6) | 88.59 / 83.65 | 86.12 | 87.32 / 81.64 | 84.48 | 18.22M |
+| **This branch, CNN + span ensemble** | 88.10 / 83.51 | 85.80 | 87.39 / 81.51 | 84.45 | 18.60M |
+
+* **All three systems are tied on test** (84.45 to 84.53 combined, well inside the 0.3-point seed noise). The span
+  system has the highest test intent accuracy (87.39) and the lowest slot F1 (81.51).
+* Its value to the group is **diversity at equal accuracy**: a different slot decoder and a two-way coupling that no
+  other group system uses. For a mixed ensemble, a member that makes different errors is worth more than another copy
+  of the same recipe.
+* Test slot F1 by gold span length: 1 token 85.44, 2 tokens 78.77, 3+ tokens 64.99.
+* On test, 375 of 2,974 intents are wrong (288 of them in a different scenario). Utterances with a word unseen in
+  training score 75.05 intent and 65.62 slot F1, against 90.14 and 85.36 without. These are the same weaknesses as the
+  CRF system (Section 7.3).
+
+### 8.5 Limitations
+
+* **No accuracy gain.** The span ensemble does not beat the CRF ensemble, so it is offered as a different approach,
+  not as a replacement.
+* **Thread sensitivity again.** In development runs with 2 to 3 CPU threads, the six-member span ensemble scored 86.15
+  validation combined. The notebook run (4 threads) scored 85.80. The notebook numbers are the ones reported.
+* **Cost.** Up to 10 candidate spans are scored per token, and decoding needs a small dynamic programme per utterance.
+  Training time was not a problem in practice: a span member's median epoch took 14.4 s (4 threads), against 19.3 s
+  for a CRF member (3 threads, so the two are not directly comparable).
+* **Long slots are still the weakest:** `news_topic` (53.8 test F1) and `song_name` (63.0) remain hard because they
+  are open-ended phrases, often with unseen words.
+
+---
+
+## 9. Repository layout
 
 | Path | Contents |
 |---|---|
 | `main.ipynb` | The required notebook: both stages, with logs, curves, checkpoints, reload checks, test scores, results table and error analysis |
+| `span.ipynb` | Span-based Stage 2 variant: design comparison, member training, ensemble selection, reload check, single test run, error analysis |
 | `stage1_tuning.ipynb` | Stage 1 grid search and seed check (validation only) |
 | `stage2_experiments.ipynb` | Stage 2 ensemble size, decoding options, ablations (validation only) |
 | `tools/core.py` | All source code, split into notebook cells |
