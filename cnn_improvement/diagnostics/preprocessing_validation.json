@@ -1,0 +1,88 @@
+{
+  "data_sha256": "c70f75c6a543a26e249ec383df67733ad9b1066f6c0406c2e04a3f03356e407e",
+  "counts": {
+    "train": 11514,
+    "dev": 2033,
+    "test": 2974
+  },
+  "training_inventory": {
+    "words": 5304,
+    "characters": 34,
+    "intents": 60,
+    "slot_types": 55,
+    "bio_tags": 111
+  },
+  "reference": {
+    "branch": "Max-Stage1",
+    "commit": "41f96d0edf41f0ffefe8f6f7419d8cc085967b7b",
+    "notebook_sha256": "0a069c5cf3fdadaed5dc60ffbf2b2e1748414f594c226b75b873b2c25e25a7f2",
+    "executed_only": [
+      "parse_gold_pairs",
+      "tags_to_pairs",
+      "evaluate"
+    ]
+  },
+  "gold_roundtrip": {
+    "train": {
+      "n": 11514,
+      "intent_correct": 11514,
+      "tp": 11340,
+      "fp": 0,
+      "fn": 0,
+      "intent_acc": 100.0,
+      "slot_f1": 100.0,
+      "combined": 100.0
+    },
+    "dev": {
+      "n": 2033,
+      "intent_correct": 2033,
+      "tp": 2011,
+      "fp": 0,
+      "fn": 0,
+      "intent_acc": 100.0,
+      "slot_f1": 100.0,
+      "combined": 100.0
+    },
+    "test": {
+      "n": 2974,
+      "intent_correct": 2974,
+      "tp": 2815,
+      "fp": 0,
+      "fn": 0,
+      "intent_acc": 100.0,
+      "slot_f1": 100.0,
+      "combined": 100.0
+    }
+  },
+  "dev_deterministic_corruption": {
+    "description": "Modulo-4 deletion, all-O, orphan I spurious span, or B-to-I conversion; every fifth intent changed to next class. Diagnostic predictions only, no training.",
+    "new_scorer": {
+      "n": 2033,
+      "intent_correct": 1626,
+      "tp": 1154,
+      "fp": 637,
+      "fn": 857,
+      "intent_acc": 79.98032464338417,
+      "slot_f1": 60.70489216201999,
+      "combined": 70.34260840270207
+    },
+    "max_scorer": {
+      "intent_acc": 79.98032464338417,
+      "slot_f1": 60.70489216201999,
+      "combined": 70.34260840270207,
+      "n": 2033,
+      "intent_correct": 1626,
+      "tp": 1154,
+      "fp": 637,
+      "fn": 857
+    },
+    "all_predicted_pair_sets_identical": true
+  },
+  "all_checks_passed": true,
+  "test_usage": "Only official split-count, known-label alignment and gold-label roundtrip correctness; no trained prediction or test error inspection.",
+  "all_labels_known_from_training_inventory": {
+    "train": true,
+    "dev": true,
+    "test": true
+  }
+}

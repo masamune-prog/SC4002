@@ -1,0 +1,58 @@
+{
+  "system": "shared residual dilated CNN with joint intent head and BIO-constrained CRF",
+  "selected_candidate": "ensemble",
+  "parameters": {
+    "total": 6922206,
+    "trainable": 6922206
+  },
+  "validation": {
+    "n": 2033,
+    "intent_correct": 1783,
+    "tp": 1679,
+    "fp": 363,
+    "fn": 332,
+    "intent_acc": 87.70290211510084,
+    "slot_f1": 82.85220824080928,
+    "combined": 85.27755517795507,
+    "inference_seconds": 0.9741705999767873,
+    "utterances_per_second": 2086.903464391599
+  },
+  "test": {
+    "n": 2974,
+    "intent_correct": 2605,
+    "tp": 2258,
+    "fp": 505,
+    "fn": 557,
+    "intent_acc": 87.59246805648958,
+    "slot_f1": 80.96091789171746,
+    "combined": 84.27669297410353,
+    "inference_seconds": 1.6405536999809556,
+    "utterances_per_second": 1812.8025922190318
+  },
+  "best_epochs": [
+    26,
+    17,
+    33
+  ],
+  "epochs_trained": [
+    35,
+    26,
+    36
+  ],
+  "training_seconds_selected_members": 923.6118203000224,
+  "environment": {
+    "python": "3.12.0 | packaged by Anaconda, Inc. | (main, Oct  2 2023, 17:20:38) [MSC v.1916 64 bit (AMD64)]",
+    "executable": "C:\\Users\\samuel\\anaconda3\\envs\\env\\python.exe",
+    "torch": "2.12.0+cpu",
+    "numpy": "2.4.4",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "device": "cpu",
+    "threads": 4,
+    "gpu": null
+  },
+  "reload_verified": true,
+  "selection_sha256": "f187a1a1858ddca16492c42964f81889ce70c09a166b571b1dba35b0a08eae4e",
+  "evaluated_at_utc": "2026-10-26T13:52:16.836986+00:00",
+  "disclosure": "AI-assisted implementation and execution; not an independent Stage-1 baseline."
+}

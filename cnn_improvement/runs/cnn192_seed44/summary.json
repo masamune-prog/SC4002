@@ -1,0 +1,30 @@
+{
+  "name": "cnn192",
+  "seed": 44,
+  "best_epoch": 33,
+  "epochs_trained": 36,
+  "parameters": {
+    "total": 2307402,
+    "trainable": 2307402
+  },
+  "validation": {
+    "n": 2033,
+    "intent_correct": 1778,
+    "tp": 1655,
+    "fp": 394,
+    "fn": 356,
+    "intent_acc": 87.45696015740285,
+    "slot_f1": 81.52709359605912,
+    "combined": 84.49202687673099,
+    "inference_seconds": 0.9888235000253189,
+    "utterances_per_second": 2055.9786452768817,
+    "intent_loss": 0.9399812574522635,
+    "slot_loss": 0.20759517935345737,
+    "loss": 1.3551716161591782
+  },
+  "elapsed_seconds": 340.52035390000674,
+  "checkpoint": "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed44\\best.pt",
+  "checkpoint_sha256": "328a24c51f9abc9ae75d2dc5b46f330aa07b028b055e38cfc3d68013f7da82b5",
+  "test_evaluated": false,
+  "reload_verified": true
+}

@@ -1,0 +1,83 @@
+[
+  {
+    "id": "30",
+    "utt": "cleaning is good dust is so bad do now your magic clean my carpet",
+    "gold_intent": "iot_cleaning",
+    "predicted_intent": "general_quirky",
+    "gold_slots": [
+      [
+        "house_place",
+        "carpet"
+      ]
+    ],
+    "predicted_slots": [],
+    "predicted_tags": [
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    "split": "dev",
+    "selection_reason": "First slot error in original dev order",
+    "missing_slots": [
+      [
+        "house_place",
+        "carpet"
+      ]
+    ],
+    "unexpected_slots": [],
+    "intent_correct": false,
+    "interpretation_limit": "Observed mismatch only; no causal diagnosis is established by this example."
+  },
+  {
+    "id": "8",
+    "utt": "pink is all we need",
+    "gold_intent": "iot_hue_lightchange",
+    "predicted_intent": "play_music",
+    "gold_slots": [
+      [
+        "color_type",
+        "pink"
+      ]
+    ],
+    "predicted_slots": [
+      [
+        "artist_name",
+        "pink"
+      ]
+    ],
+    "predicted_tags": [
+      "B-artist_name",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    "split": "test",
+    "selection_reason": "First intent error in original test order",
+    "missing_slots": [
+      [
+        "color_type",
+        "pink"
+      ]
+    ],
+    "unexpected_slots": [
+      [
+        "artist_name",
+        "pink"
+      ]
+    ],
+    "intent_correct": false,
+    "interpretation_limit": "Observed mismatch only; no causal diagnosis is established by this example."
+  }
+]

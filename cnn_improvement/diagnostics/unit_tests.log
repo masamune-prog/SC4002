@@ -1,0 +1,21 @@
+test_pooled_micro_f1_is_not_mean_per_example_f1 (test_data_metrics.ExactScoringTests.test_pooled_micro_f1_is_not_mean_per_example_f1) ... ok
+test_raw_records_score_strings_without_vocab (test_data_metrics.ExactScoringTests.test_raw_records_score_strings_without_vocab) ... ok
+test_wrong_type_or_boundary_counts_as_both_fp_and_fn (test_data_metrics.ExactScoringTests.test_wrong_type_or_boundary_counts_as_both_fp_and_fn) ... ok
+test_adjacent_same_type_slots_stay_separate (test_data_metrics.SpanAlignmentTests.test_adjacent_same_type_slots_stay_separate) ... ok
+test_internal_whitespace_and_punctuation_preserved (test_data_metrics.SpanAlignmentTests.test_internal_whitespace_and_punctuation_preserved) ... ok
+test_mismatch_or_unrepresentable_annotation_is_rejected (test_data_metrics.SpanAlignmentTests.test_mismatch_or_unrepresentable_annotation_is_rejected) ... ok
+test_orphan_i_recovery_and_no_slots (test_data_metrics.SpanAlignmentTests.test_orphan_i_recovery_and_no_slots) ... ok
+test_repeated_pairs_use_assignment_set_semantics (test_data_metrics.SpanAlignmentTests.test_repeated_pairs_use_assignment_set_semantics) ... ok
+test_counts_and_batch_padding_preserve_all_tokens (test_data_metrics.VocabularyAndBatchTests.test_counts_and_batch_padding_preserve_all_tokens) ... ok
+test_dev_words_never_enter_vocab_and_labels_are_not_inputs (test_data_metrics.VocabularyAndBatchTests.test_dev_words_never_enter_vocab_and_labels_are_not_inputs) ... ok
+test_embeddings_use_training_rows_only_and_seed_unknowns (test_data_metrics.VocabularyAndBatchTests.test_embeddings_use_training_rows_only_and_seed_unknowns) ... ok
+test_official_partition_membership_is_preserved (test_data_metrics.VocabularyAndBatchTests.test_official_partition_membership_is_preserved) ... ok
+test_both_tasks_train_the_same_encoder (test_model.ModelTests.test_both_tasks_train_the_same_encoder) ... ok
+test_crf_matches_independent_brute_force_with_padding (test_model.ModelTests.test_crf_matches_independent_brute_force_with_padding) ... ok
+test_encoder_and_character_pooling_are_padding_invariant (test_model.ModelTests.test_encoder_and_character_pooling_are_padding_invariant) ... ok
+test_frozen_embeddings_still_count_and_roundtrip_checkpoint (test_model.ModelTests.test_frozen_embeddings_still_count_and_roundtrip_checkpoint) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.631s
+
+OK

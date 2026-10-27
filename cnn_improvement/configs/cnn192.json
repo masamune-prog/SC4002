@@ -1,0 +1,41 @@
+{
+  "name": "cnn192",
+  "model": {
+    "emb_dim": 300,
+    "freeze_emb": false,
+    "use_char": true,
+    "char_dim": 32,
+    "char_filters": 64,
+    "char_kernel_size": 3,
+    "channels": 192,
+    "dilations": [1, 2, 4, 8],
+    "kernel_size": 3,
+    "dropout": 0.30,
+    "embedding_dropout": 0.20,
+    "head_dim": 192,
+    "intent_conditioning": true,
+    "use_crf": true,
+    "label_smoothing": 0.05,
+    "slot_weight": 2.0,
+    "slot_loss_normalization": "token"
+  },
+  "training": {
+    "seed": 42,
+    "epochs": 36,
+    "minimum_epochs": 12,
+    "patience": 9,
+    "batch_size": 64,
+    "eval_batch_size": 128,
+    "learning_rate": 0.001,
+    "embedding_lr_multiplier": 0.3,
+    "weight_decay": 0.0001,
+    "clip_norm": 5.0,
+    "word_dropout_alpha": 0.25,
+    "warmup_epochs": 1,
+    "min_lr_ratio": 0.05,
+    "threads": 4,
+    "bucket_multiplier": 20
+  },
+  "selection": "mean_of_validation_intent_accuracy_and_exact_slot_micro_f1",
+  "disclosure": "AI-assisted implementation; not an independently developed Stage-1 baseline."
+}

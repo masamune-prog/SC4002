@@ -1,2 +1,26 @@
 1.0
 amazon-massive-dataset-1.0.tar.gz
+
+# Downloaded assets, local investigation snapshots, and regenerable caches.
+/tmp/
+/cnn_improvement/data/
+/cnn_improvement/embeddings/
+/cnn_improvement/cache/
+/cnn_improvement/reproduction/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Model/optimizer binaries are local run artifacts; retain JSON/CSV/log evidence.
+/cnn_improvement/runs/**/*.pt
+/cnn_improvement/results/*.pt
+*.part
+
+# Local secrets must never enter a source snapshot.
+.env
+.env.*
+!.env.example
+*.pem
+*.key

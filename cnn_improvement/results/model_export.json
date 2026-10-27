@@ -1,0 +1,12 @@
+{
+  "file": "model.pt",
+  "sha256": "b362a93984f93c1aa60e5898d6f632bea75d82da66b66e264dd649512c2b5ef7",
+  "bytes": 27907679,
+  "parameters": {
+    "total": 6922206,
+    "trainable": 6922206
+  },
+  "members": 3,
+  "vocab_included": true,
+  "external_embeddings_needed_for_inference": false
+}

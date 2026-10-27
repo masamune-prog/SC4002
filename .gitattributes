@@ -1,0 +1,6 @@
+# Preserve recorded artifact bytes: saved evidence includes SHA-256 checksums.
+cnn_improvement/**/*.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+cnn_improvement/**/*.jsonl -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+cnn_improvement/**/*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+cnn_improvement/**/*.log -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+cnn_improvement/**/*.ipynb -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

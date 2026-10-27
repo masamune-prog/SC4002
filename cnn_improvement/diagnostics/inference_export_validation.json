@@ -1,0 +1,23 @@
+{
+  "exported_checkpoint_sha256": "b362a93984f93c1aa60e5898d6f632bea75d82da66b66e264dd649512c2b5ef7",
+  "dev_utterances_checked": 2033,
+  "all_export_predictions_match": true,
+  "label_free_inference": true,
+  "elapsed_seconds": 0.8506382000050507,
+  "counts_recomputed_from_saved_predictions": {
+    "validation": {
+      "n": 2033,
+      "intent_correct": 1783,
+      "tp": 1679,
+      "fp": 363,
+      "fn": 332
+    },
+    "test": {
+      "n": 2974,
+      "intent_correct": 2605,
+      "tp": 2258,
+      "fp": 505,
+      "fn": 557
+    }
+  }
+}

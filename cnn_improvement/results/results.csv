@@ -1,0 +1,3 @@
+system,selected_candidate,split,total_parameters,trainable_parameters,intent_accuracy_percent,exact_slot_micro_f1_percent,combined_percent,best_epochs,epochs_trained,examples,correct_intents,slot_tp,slot_fp,slot_fn
+shared residual dilated CNN with joint intent head and BIO-constrained CRF,ensemble,validation,6922206,6922206,87.70,82.85,85.28,26/17/33,35/26/36,2033,1783,1679,363,332
+shared residual dilated CNN with joint intent head and BIO-constrained CRF,ensemble,test,6922206,6922206,87.59,80.96,84.28,26/17/33,35/26/36,2974,2605,2258,505,557

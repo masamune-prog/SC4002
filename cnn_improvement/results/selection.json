@@ -1,0 +1,151 @@
+{
+  "selected": {
+    "name": "ensemble",
+    "members": [
+      0,
+      1,
+      2
+    ],
+    "validation": {
+      "n": 2033,
+      "intent_correct": 1783,
+      "tp": 1679,
+      "fp": 363,
+      "fn": 332,
+      "intent_acc": 87.70290211510084,
+      "slot_f1": 82.85220824080928,
+      "combined": 85.27755517795507,
+      "inference_seconds": 1.0612928999762516,
+      "utterances_per_second": 1915.5880530676236
+    },
+    "parameters": {
+      "total": 6922206,
+      "trainable": 6922206
+    }
+  },
+  "candidates": [
+    {
+      "name": "member_0",
+      "members": [
+        0
+      ],
+      "validation": {
+        "n": 2033,
+        "intent_correct": 1774,
+        "tp": 1664,
+        "fp": 416,
+        "fn": 347,
+        "intent_acc": 87.26020659124447,
+        "slot_f1": 81.34930334881447,
+        "combined": 84.30475497002948,
+        "inference_seconds": 0.3970776000060141,
+        "utterances_per_second": 5119.906033403064
+      },
+      "parameters": {
+        "total": 2307402,
+        "trainable": 2307402
+      }
+    },
+    {
+      "name": "member_1",
+      "members": [
+        1
+      ],
+      "validation": {
+        "n": 2033,
+        "intent_correct": 1763,
+        "tp": 1652,
+        "fp": 395,
+        "fn": 359,
+        "intent_acc": 86.71913428430891,
+        "slot_f1": 81.41941843272548,
+        "combined": 84.06927635851719,
+        "inference_seconds": 0.47374370001489297,
+        "utterances_per_second": 4291.349942882805
+      },
+      "parameters": {
+        "total": 2307402,
+        "trainable": 2307402
+      }
+    },
+    {
+      "name": "member_2",
+      "members": [
+        2
+      ],
+      "validation": {
+        "n": 2033,
+        "intent_correct": 1778,
+        "tp": 1655,
+        "fp": 394,
+        "fn": 356,
+        "intent_acc": 87.45696015740285,
+        "slot_f1": 81.52709359605912,
+        "combined": 84.49202687673099,
+        "inference_seconds": 0.5325456999999005,
+        "utterances_per_second": 3817.512750549633
+      },
+      "parameters": {
+        "total": 2307402,
+        "trainable": 2307402
+      }
+    },
+    {
+      "name": "ensemble",
+      "members": [
+        0,
+        1,
+        2
+      ],
+      "validation": {
+        "n": 2033,
+        "intent_correct": 1783,
+        "tp": 1679,
+        "fp": 363,
+        "fn": 332,
+        "intent_acc": 87.70290211510084,
+        "slot_f1": 82.85220824080928,
+        "combined": 85.27755517795507,
+        "inference_seconds": 1.0612928999762516,
+        "utterances_per_second": 1915.5880530676236
+      },
+      "parameters": {
+        "total": 6922206,
+        "trainable": 6922206
+      }
+    }
+  ],
+  "run_dirs": [
+    "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed42",
+    "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed43",
+    "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed44"
+  ],
+  "checkpoints": [
+    {
+      "path": "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed42\\best.pt",
+      "sha256": "41296f05d53155aff2e6f922da3d759f3240e965367f1d45b5d0e998237c2eb6"
+    },
+    {
+      "path": "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed43\\best.pt",
+      "sha256": "94b64bdb7ee54693db08873d41a1985e8ccd4a87d1282026013b1d3ca7579758"
+    },
+    {
+      "path": "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\runs\\cnn192_seed44\\best.pt",
+      "sha256": "328a24c51f9abc9ae75d2dc5b46f330aa07b028b055e38cfc3d68013f7da82b5"
+    }
+  ],
+  "data_sha256": "c70f75c6a543a26e249ec383df67733ad9b1066f6c0406c2e04a3f03356e407e",
+  "test_evaluated": false,
+  "selection_rule": "maximum dev combined score; ties prefer fewer parameters",
+  "frozen_at_utc": "2026-10-26T13:52:00.189172+00:00",
+  "source_sha256": {
+    "__init__.py": "845c1126919e76c0ae82842cacd2928f4e455f8edf288c0a79c4945c57070c6d",
+    "data.py": "959be8d41b152b138c62e5f07b3eac2cfd0c7fa01b82fedd43029a85f89b3406",
+    "download_assets.py": "56358e8b90831d2dbe9ee2dc5e78e81f416059005eeefc86353583cbb2e78233",
+    "metrics.py": "9c2f99be36589fbdf40388bddbcd34ecbc610f74974a21f832a4cf9ef23a14ba",
+    "model.py": "107048dcf8968d1769c2ff1f7f3f2b33ead98a0559165f56b001eede90ff6fc9",
+    "predict.py": "bcc406f0e4ef75efefc553318ede176feb9b29c902b61a7ac3f767b2839a2602",
+    "sanity_check.py": "d987aa2c6df16d8ea1c47e7d597160e4c925a749a08757d185852063444e3ba3",
+    "train.py": "1d7863cba61fccecb1e43b861c2e9184857d20494b5fc66e00d9d472aa1916aa"
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "config": {
+    "name": "cnn192",
+    "model": {
+      "emb_dim": 300,
+      "freeze_emb": false,
+      "word_pad_id": 0,
+      "char_pad_id": 0,
+      "use_char": true,
+      "char_dim": 32,
+      "char_filters": 64,
+      "char_kernel_size": 3,
+      "channels": 192,
+      "kernel_size": 3,
+      "dilations": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "dropout": 0.3,
+      "embedding_dropout": 0.2,
+      "head_dim": 192,
+      "intent_conditioning": true,
+      "use_crf": true,
+      "label_smoothing": 0.05,
+      "slot_weight": 2.0,
+      "slot_loss_normalization": "token"
+    },
+    "training": {
+      "seed": 42,
+      "epochs": 36,
+      "minimum_epochs": 12,
+      "patience": 9,
+      "batch_size": 64,
+      "eval_batch_size": 128,
+      "learning_rate": 0.001,
+      "embedding_lr_multiplier": 0.3,
+      "weight_decay": 0.0001,
+      "clip_norm": 5.0,
+      "word_dropout_alpha": 0.25,
+      "warmup_epochs": 1,
+      "min_lr_ratio": 0.05,
+      "threads": 4,
+      "bucket_multiplier": 20
+    },
+    "selection": "mean_of_validation_intent_accuracy_and_exact_slot_micro_f1",
+    "disclosure": "AI-assisted implementation; not an independently developed Stage-1 baseline."
+  },
+  "environment": {
+    "python": "3.12.0 | packaged by Anaconda, Inc. | (main, Oct  2 2023, 17:20:38) [MSC v.1916 64 bit (AMD64)]",
+    "executable": "C:\\Users\\samuel\\anaconda3\\envs\\env\\python.exe",
+    "torch": "2.12.0+cpu",
+    "numpy": "2.4.4",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "processor": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "device": "cpu",
+    "threads": 4,
+    "gpu": null
+  },
+  "parameters": {
+    "total": 2307402,
+    "trainable": 2307402
+  },
+  "data_sha256": "c70f75c6a543a26e249ec383df67733ad9b1066f6c0406c2e04a3f03356e407e",
+  "split_counts": {
+    "train": 11514,
+    "dev": 2033,
+    "test": 2974
+  },
+  "vocab_words": 5304,
+  "vocab_chars": 34,
+  "embedding_coverage": {
+    "dimension": 300,
+    "vocabulary_rows": 5304,
+    "train_types": 5302,
+    "exact_types": 4918,
+    "fallback_types": 1,
+    "matched_types": 4919,
+    "unmatched_types": 383,
+    "type_coverage_pct": 92.77631082610336,
+    "train_tokens": 79732,
+    "matched_tokens": 78516,
+    "token_coverage_pct": 98.47489088446295,
+    "random_init_std": 0.3734235465526581,
+    "source": "C:\\Users\\samuel\\OneDrive\\Desktop\\School Stuff\\Y4S1\\SC4002 Natural Language Processing\\Project\\cnn_improvement\\embeddings\\glove.6B.300d.txt",
+    "external_vocabulary_rows_added": 0
+  },
+  "receptive_field_tokens": 31,
+  "max_training_tokens": 35,
+  "source_sha256": {
+    "__init__.py": "845c1126919e76c0ae82842cacd2928f4e455f8edf288c0a79c4945c57070c6d",
+    "data.py": "959be8d41b152b138c62e5f07b3eac2cfd0c7fa01b82fedd43029a85f89b3406",
+    "download_assets.py": "56358e8b90831d2dbe9ee2dc5e78e81f416059005eeefc86353583cbb2e78233",
+    "metrics.py": "9c2f99be36589fbdf40388bddbcd34ecbc610f74974a21f832a4cf9ef23a14ba",
+    "model.py": "107048dcf8968d1769c2ff1f7f3f2b33ead98a0559165f56b001eede90ff6fc9",
+    "train.py": "1d7863cba61fccecb1e43b861c2e9184857d20494b5fc66e00d9d472aa1916aa"
+  },
+  "started_at_utc": "2026-10-26T13:42:53.608298+00:00"
+}

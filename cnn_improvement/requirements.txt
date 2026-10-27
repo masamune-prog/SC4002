@@ -1,0 +1,10 @@
+# Tested training runtime: Python 3.12.0, PyTorch 2.12.0+cpu.
+# torch==2.12.0 accepts the matching CPU build's local-version suffix.
+torch==2.12.0
+numpy==2.4.4
+# Report-only packages (training does not import these).
+matplotlib==3.10.6
+pandas==2.3.3
+nbformat==5.10.4
+nbclient==0.10.2
+ipykernel==6.31.0
