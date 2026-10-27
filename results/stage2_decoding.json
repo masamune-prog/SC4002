@@ -1,0 +1,38 @@
+[
+ {
+  "decoding": "top-1 intents, slot-type mask off",
+  "intent_acc": 89.17855386128873,
+  "slot_f1": 83.56504468718967,
+  "combined": 86.37179927423921
+ },
+ {
+  "decoding": "top-1 intents, slot-type mask on",
+  "intent_acc": 89.17855386128873,
+  "slot_f1": 83.53293413173652,
+  "combined": 86.35574399651263
+ },
+ {
+  "decoding": "top-3 intents, slot-type mask on",
+  "intent_acc": 88.78504672897196,
+  "slot_f1": 83.59025360517155,
+  "combined": 86.18765016707175
+ },
+ {
+  "decoding": "kNN over train vectors, k=10, weight 0.2 (+13,264,128 stored values)",
+  "intent_acc": 89.12936546974915,
+  "slot_f1": 83.56504468718967,
+  "combined": 86.34720507846941
+ },
+ {
+  "decoding": "kNN over train vectors, k=20, weight 0.4 (+13,264,128 stored values)",
+  "intent_acc": 88.88342351205115,
+  "slot_f1": 83.56504468718967,
+  "combined": 86.22423409962042
+ },
+ {
+  "decoding": "kNN over train vectors, k=20, weight 0.6 (+13,264,128 stored values)",
+  "intent_acc": 88.83423512051156,
+  "slot_f1": 83.56504468718967,
+  "combined": 86.19963990385062
+ }
+]

@@ -1,0 +1,120 @@
+{
+ "members": [
+  {
+   "tag": "final_config_seed42",
+   "seed": 42,
+   "over": {},
+   "intent_acc": 87.99803246433842,
+   "slot_f1": 82.47576435495898,
+   "combined": 85.2368984096487,
+   "raw_best": 85.2368984096487,
+   "swa_best": 85.13873804989943,
+   "trainable": 2448770,
+   "total": 5971370
+  },
+  {
+   "tag": "final_config_seed43",
+   "seed": 43,
+   "over": {},
+   "intent_acc": 87.60452533202164,
+   "slot_f1": 82.3065549531789,
+   "combined": 84.95554014260027,
+   "raw_best": 84.95554014260027,
+   "swa_best": 84.8974772688722,
+   "trainable": 2448770,
+   "total": 5971370
+  },
+  {
+   "tag": "final_config_seed44",
+   "seed": 44,
+   "over": {},
+   "intent_acc": 87.94884407279882,
+   "slot_f1": 82.49566724436741,
+   "combined": 85.22225565858312,
+   "raw_best": 85.22225565858312,
+   "swa_best": 85.19314881370929,
+   "trainable": 2448770,
+   "total": 5971370
+  },
+  {
+   "tag": "final_config_seed45",
+   "seed": 45,
+   "over": {},
+   "intent_acc": 87.85046728971963,
+   "slot_f1": 82.0817843866171,
+   "combined": 84.96612583816837,
+   "raw_best": 84.95513826368752,
+   "swa_best": 84.96612583816837,
+   "trainable": 2448770,
+   "total": 5971370
+  },
+  {
+   "tag": "final_config_seed46",
+   "seed": 46,
+   "over": {},
+   "intent_acc": 87.60452533202164,
+   "slot_f1": 81.98265179677819,
+   "combined": 84.79358856439991,
+   "raw_best": 84.79358856439991,
+   "swa_best": 84.67437394460318,
+   "trainable": 2448770,
+   "total": 5971370
+  },
+  {
+   "tag": "final_config_seed47",
+   "seed": 47,
+   "over": {},
+   "intent_acc": 87.85046728971963,
+   "slot_f1": 82.20798422868408,
+   "combined": 85.02922575920186,
+   "raw_best": 85.02922575920186,
+   "swa_best": 84.97862429645043,
+   "trainable": 2448770,
+   "total": 5971370
+  }
+ ],
+ "ensembles": [
+  {
+   "members": 1,
+   "intent_acc": 87.99803246433842,
+   "slot_f1": 82.47576435495898,
+   "combined": 85.2368984096487,
+   "total_params": 5971370
+  },
+  {
+   "members": 2,
+   "intent_acc": 88.34235120511559,
+   "slot_f1": 83.25074331020812,
+   "combined": 85.79654725766186,
+   "total_params": 8420140
+  },
+  {
+   "members": 3,
+   "intent_acc": 88.78504672897196,
+   "slot_f1": 83.35817188276205,
+   "combined": 86.07160930586701,
+   "total_params": 10868910
+  },
+  {
+   "members": 4,
+   "intent_acc": 88.63748155435317,
+   "slot_f1": 83.7972166998012,
+   "combined": 86.21734912707718,
+   "total_params": 13317680
+  },
+  {
+   "members": 5,
+   "intent_acc": 88.88342351205115,
+   "slot_f1": 83.33333333333333,
+   "combined": 86.10837842269224,
+   "total_params": 15766450
+  },
+  {
+   "members": 6,
+   "intent_acc": 89.17855386128873,
+   "slot_f1": 83.56504468718967,
+   "combined": 86.37179927423921,
+   "total_params": 18215220
+  }
+ ]
+}

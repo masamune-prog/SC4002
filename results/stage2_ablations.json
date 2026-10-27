@@ -1,0 +1,106 @@
+[
+ {
+  "variant": "final configuration (seed 42)",
+  "intent_acc": 87.99803246433842,
+  "slot_f1": 82.47576435495898,
+  "combined": 85.2368984096487,
+  "trainable": 2448770,
+  "delta_combined": 0.0
+ },
+ {
+  "variant": "whitespace tokens (no clitic split)",
+  "intent_acc": 87.06345302508608,
+  "slot_f1": 82.40556660039762,
+  "combined": 84.73450981274185,
+  "trainable": 2463870,
+  "delta_combined": -0.5023885969068544
+ },
+ {
+  "variant": "no frozen pre-trained vectors",
+  "intent_acc": 85.48942449581898,
+  "slot_f1": 80.94059405940594,
+  "combined": 83.21500927761247,
+  "trainable": 2333570,
+  "delta_combined": -2.021889132036236
+ },
+ {
+  "variant": "GloVe only (no fastText)",
+  "intent_acc": 87.26020659124447,
+  "slot_f1": 81.7532627431667,
+  "combined": 84.50673466720559,
+  "trainable": 2391170,
+  "delta_combined": -0.7301637424431107
+ },
+ {
+  "variant": "no hashed char n-grams",
+  "intent_acc": 87.70290211510084,
+  "slot_f1": 82.31511254019293,
+  "combined": 85.00900732764688,
+  "trainable": 2189120,
+  "delta_combined": -0.2278910820018183
+ },
+ {
+  "variant": "no scenario head",
+  "intent_acc": 87.50614854894245,
+  "slot_f1": 82.80823616968495,
+  "combined": 85.1571923593137,
+  "trainable": 2445296,
+  "delta_combined": -0.07970605033500533
+ },
+ {
+  "variant": "no intent-aware slots",
+  "intent_acc": 87.75209050664043,
+  "slot_f1": 82.02970297029702,
+  "combined": 84.89089673846873,
+  "trainable": 2437250,
+  "delta_combined": -0.3460016711799767
+ },
+ {
+  "variant": "no BIO constraints",
+  "intent_acc": 87.75209050664043,
+  "slot_f1": 81.91176470588235,
+  "combined": 84.83192760626139,
+  "trainable": 2448770,
+  "delta_combined": -0.4049708033873145
+ },
+ {
+  "variant": "no label smoothing",
+  "intent_acc": 87.30939498278406,
+  "slot_f1": 81.71186862403583,
+  "combined": 84.51063180340995,
+  "trainable": 2448770,
+  "delta_combined": -0.7262666062387524
+ },
+ {
+  "variant": "+ self-attention layer",
+  "intent_acc": 87.70290211510084,
+  "slot_f1": 82.47168882323979,
+  "combined": 85.08729546917031,
+  "trainable": 2745794,
+  "delta_combined": -0.1496029404783883
+ },
+ {
+  "variant": "+ R-Drop (alpha 1)",
+  "intent_acc": 88.04722085587801,
+  "slot_f1": 81.58808933002481,
+  "combined": 84.81765509295141,
+  "trainable": 2448770,
+  "delta_combined": -0.4192433166972904
+ },
+ {
+  "variant": "wider members (256 ch, dropout 0.3, more rows)",
+  "intent_acc": 87.21101819970487,
+  "slot_f1": 82.15438073963763,
+  "combined": 84.68269946967125,
+  "trainable": 3889042,
+  "delta_combined": -0.5541989399774536
+ },
+ {
+  "variant": "fine-tuned GloVe instead of frozen tables",
+  "intent_acc": 87.50614854894245,
+  "slot_f1": 82.49258160237389,
+  "combined": 84.99936507565818,
+  "trainable": 3402570,
+  "delta_combined": -0.23753333399052678
+ }
+]

@@ -1,0 +1,38 @@
+{
+ "intent_errors": 377,
+ "intent_errors_cross_scenario": 288,
+ "slot_error_kinds": {
+  "right span, wrong type": 84,
+  "right type, wrong boundary": 128,
+  "missed entirely": 331,
+  "spurious slot": 262
+ },
+ "weak_slot_types": {
+  "news_topic": 54.9,
+  "song_name": 61.5,
+  "player_setting": 62.5,
+  "podcast_descriptor": 63.2,
+  "radio_name": 63.6,
+  "business_type": 68.8,
+  "food_type": 74.0,
+  "audiobook_name": 76.2
+ },
+ "unseen_True": {
+  "n": 541,
+  "intent_acc": 75.23105360443623,
+  "slot_f1": 66.42201834862385
+ },
+ "unseen_False": {
+  "n": 2433,
+  "intent_acc": 90.01233045622688,
+  "slot_f1": 85.34405719392315
+ },
+ "apostrophe": {
+  "n": 247,
+  "slot_f1": 79.15309446254072
+ },
+ "invalid_bio": 0,
+ "slot_type_never_seen_with_intent": 32,
+ "slot_f1_intent_right": 84.06374501992032,
+ "slot_f1_intent_wrong": 59.34065934065934
+}

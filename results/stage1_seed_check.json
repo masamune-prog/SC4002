@@ -1,0 +1,55 @@
+{
+ "seed_check": [
+  {
+   "config": {
+    "lr": 0.001,
+    "channels": 384,
+    "dropout": 0.3
+   },
+   "seed42": 84.82760709422132,
+   "seed43": 83.93002428215729,
+   "mean": 84.3788156881893,
+   "seed43_detail": {
+    "lr": 0.001,
+    "channels": 384,
+    "dropout": 0.3,
+    "seed": 43,
+    "intent_acc": 86.8175110673881,
+    "slot_f1": 81.04253749692649,
+    "combined": 83.93002428215729,
+    "best_epoch": 20,
+    "epochs_run": 30,
+    "minutes": 11.010376131534576,
+    "params": 3466218
+   }
+  },
+  {
+   "config": {
+    "lr": 0.001,
+    "channels": 384,
+    "dropout": 0.5
+   },
+   "seed42": 84.5207359662532,
+   "seed43": 84.47569339861931,
+   "mean": 84.49821468243626,
+   "seed43_detail": {
+    "lr": 0.001,
+    "channels": 384,
+    "dropout": 0.5,
+    "seed": 43,
+    "intent_acc": 86.7683226758485,
+    "slot_f1": 82.18306412139012,
+    "combined": 84.47569339861931,
+    "best_epoch": 36,
+    "epochs_run": 46,
+    "minutes": 17.934503451983133,
+    "params": 3466218
+   }
+  }
+ ],
+ "chosen": {
+  "lr": 0.001,
+  "channels": 384,
+  "dropout": 0.5
+ }
+}
