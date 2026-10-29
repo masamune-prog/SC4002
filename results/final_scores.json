@@ -1,0 +1,50 @@
+{
+ "checkpoint": "wl_final_default_s42.pt",
+ "best_epoch": 39,
+ "config": {
+  "tokeniser": "word",
+  "bpe_vocab": 2000,
+  "use_glove": true,
+  "top_k": -1,
+  "d_task": 128,
+  "char_dim": 32,
+  "char_filters": 100,
+  "d_model": 384,
+  "heads": 6,
+  "layers": 4,
+  "ffn": 1536,
+  "positions": "relative",
+  "max_len": 128,
+  "dropout": 0.2,
+  "attn_dropout": 0.1,
+  "emb_dropout": 0.25,
+  "intent_cond": true,
+  "d_intent_ctx": 64,
+  "decoder": "crf",
+  "lr": 0.0005,
+  "weight_decay": 0.01,
+  "warmup_epochs": 1.0,
+  "epochs": 40,
+  "batch_size": 32,
+  "clip": 1.0,
+  "label_smoothing": 0.1,
+  "word_dropout": 0.25,
+  "seed": 42,
+  "device": "auto"
+ },
+ "total_params": 19999735,
+ "trainable_params": 8542735,
+ "dev": {
+  "intent_acc": 87.70290211510084,
+  "slot_f1": 83.08457711442786,
+  "combined": 85.39373961476434
+ },
+ "test": {
+  "intent_acc": 87.0880968392737,
+  "slot_f1": 81.00678329168154,
+  "combined": 84.04744006547762,
+  "tp": 2269,
+  "fp": 518,
+  "fn": 546
+ }
+}
