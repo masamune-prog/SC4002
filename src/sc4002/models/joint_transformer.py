@@ -39,6 +39,7 @@ class JointTransformer(nn.Module):
         dim_feedforward: int = 512,
         max_words: int = 128,
         dropout: float = 0.1,
+        norm_first: bool = False,
         pad_id: int = 0,
         max_parameters: int = 20_000_000,
     ) -> None:
@@ -66,6 +67,7 @@ class JointTransformer(nn.Module):
             dropout=dropout,
             activation="gelu",
             batch_first=True,
+            norm_first=norm_first,
         )
         self.encoder = nn.TransformerEncoder(layer, num_layers, enable_nested_tensor=False)
         self.intent_head = nn.Linear(d_model, num_intents)

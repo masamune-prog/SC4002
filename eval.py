@@ -15,8 +15,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from main import EncodedDataset, collate, evaluate, read_split
+from main_transformer_crf import collate_crf, evaluate_crf
 from sc4002.eval import parse_slots
-from sc4002.models import JointTransformer
+from sc4002.models import JointTransformer, JointTransformerCRF
 from sc4002.tokenizers import BpeTokenizer
 
 
@@ -47,6 +48,7 @@ def save_predictions(path, examples, pred_intents, pred_slots) -> None:
 def save_results(path, checkpoint_path, saved, model, examples, loss, scores) -> None:
     row = {
         "checkpoint": str(checkpoint_path),
+        "model_type": saved.get("model_type", "joint_transformer"),
         "selected_epoch": saved["epoch"],
         "split": "test",
         "examples": len(examples),
@@ -72,7 +74,7 @@ def evaluate_checkpoint(
         raise ValueError("batch_size must be positive")
     if not checkpoint_path.is_file():
         raise FileNotFoundError(
-            f"No checkpoint at {checkpoint_path}. Train with main.py first."
+            f"No checkpoint at {checkpoint_path}. Train a model first."
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -80,7 +82,22 @@ def evaluate_checkpoint(
     if saved.get("tokenizer_type") != "bpe" or "tokenizer_json" not in saved:
         raise ValueError("Checkpoint does not contain a fitted BPE tokenizer")
     tokenizer = BpeTokenizer.from_json(saved["tokenizer_json"])
-    model = JointTransformer(**saved["model_config"]).to(device)
+    model_type = saved.get("model_type", "joint_transformer")
+    if model_type == "transformer_crf":
+        model_config = dict(saved["model_config"])
+        if "num_layers" not in model_config:
+            # Checkpoints made before the deeper CRF stored only shared settings.
+            model_config.update(
+                d_model=256, nhead=4, num_layers=3,
+                dim_feedforward=512, norm_first=False,
+            )
+        model = JointTransformerCRF(**model_config).to(device)
+        collate_fn = partial(collate_crf, pad_id=tokenizer.pad_id)
+    elif model_type == "joint_transformer":
+        model = JointTransformer(**saved["model_config"]).to(device)
+        collate_fn = partial(collate, pad_id=tokenizer.pad_id)
+    else:
+        raise ValueError(f"Unsupported checkpoint model_type: {model_type!r}")
     model.load_state_dict(saved["model_state"])
 
     test = read_split(test_csv, "test", 2_974)
@@ -88,12 +105,18 @@ def evaluate_checkpoint(
         EncodedDataset(test, tokenizer, saved["intents"], saved["tags"]),
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=partial(collate, pad_id=tokenizer.pad_id),
+        collate_fn=collate_fn,
     )
-    loss, scores, pred_intents, pred_slots = evaluate(
-        model, loader, test, tokenizer, saved["intents"], saved["tags"], device,
-        return_predictions=True,
-    )
+    if model_type == "transformer_crf":
+        loss, scores, pred_intents, pred_slots = evaluate_crf(
+            model, loader, test, saved["intents"], saved["tags"], device,
+            saved.get("slot_weight", 1.0), return_predictions=True,
+        )
+    else:
+        loss, scores, pred_intents, pred_slots = evaluate(
+            model, loader, test, tokenizer, saved["intents"], saved["tags"], device,
+            return_predictions=True,
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = output_dir / "test_predictions.csv"
     results_path = output_dir / "test_results.csv"

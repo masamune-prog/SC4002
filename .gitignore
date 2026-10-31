@@ -16,3 +16,10 @@ logs/*
 !logs/.gitkeep
 outputs/*
 !outputs/.gitkeep
+
+# External pretrained vectors
+data/glove*.zip
+data/glove*.txt
+
+#sbatch
+.sbatch
