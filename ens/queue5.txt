@@ -1,0 +1,6 @@
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 42 --tag rm10_glu_crf_s42 --no-slot-lex --no-intent-lex --set rand_span_mask=0.10 > logs/ens_rm10_glu_crf_s42.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 42 --tag rm20_glu_crf_s42 --no-slot-lex --no-intent-lex --set rand_span_mask=0.20 > logs/ens_rm20_glu_crf_s42.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 43 --tag rm10_glu_crf_s43 --no-slot-lex --no-intent-lex --set rand_span_mask=0.10 > logs/ens_rm10_glu_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 43 --tag rm20_glu_crf_s43 --no-slot-lex --no-intent-lex --set rand_span_mask=0.20 > logs/ens_rm20_glu_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 44 --tag rm10_glu_crf_s44 --no-slot-lex --no-intent-lex --set rand_span_mask=0.10 > logs/ens_rm10_glu_crf_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 44 --tag rm20_glu_crf_s44 --no-slot-lex --no-intent-lex --set rand_span_mask=0.20 > logs/ens_rm20_glu_crf_s44.log 2>&1

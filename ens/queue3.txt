@@ -1,0 +1,12 @@
+.venv/bin/python ens/train_member.py --arch glu_span --seed 42 --tag nl_glu_span_s42 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_span_s42.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_span --seed 43 --tag nl_glu_span_s43 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_span_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_span --seed 44 --tag nl_glu_span_s44 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_span_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch lstm_crf --seed 42 --tag nl_lstm_crf_s42 --no-slot-lex --no-intent-lex > logs/ens_nl_lstm_crf_s42.log 2>&1
+.venv/bin/python ens/train_member.py --arch lstm_crf --seed 43 --tag nl_lstm_crf_s43 --no-slot-lex --no-intent-lex > logs/ens_nl_lstm_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch lstm_crf --seed 44 --tag nl_lstm_crf_s44 --no-slot-lex --no-intent-lex > logs/ens_nl_lstm_crf_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch tf_crf --seed 42 --tag nl_tf_crf_s42 --no-slot-lex --no-intent-lex > logs/ens_nl_tf_crf_s42.log 2>&1
+.venv/bin/python ens/train_member.py --arch tf_crf --seed 43 --tag nl_tf_crf_s43 --no-slot-lex --no-intent-lex > logs/ens_nl_tf_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch tf_crf --seed 44 --tag nl_tf_crf_s44 --no-slot-lex --no-intent-lex > logs/ens_nl_tf_crf_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 45 --tag nl_glu_crf_s45 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_crf_s45.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 46 --tag nl_glu_crf_s46 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_crf_s46.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_crf --seed 47 --tag nl_glu_crf_s47 --no-slot-lex --no-intent-lex > logs/ens_nl_glu_crf_s47.log 2>&1

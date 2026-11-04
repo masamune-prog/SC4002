@@ -23,3 +23,7 @@ data/glove*.txt
 
 #sbatch
 .sbatch
+
+# ensemble experiment
+embeddings/
+ens/cache/

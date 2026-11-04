@@ -1,0 +1,6 @@
+.venv/bin/python ens/train_member.py --arch glu_span --seed 43 > logs/ens_glu_span_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch lstm_crf --seed 43 > logs/ens_lstm_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch tf_crf --seed 43 > logs/ens_tf_crf_s43.log 2>&1
+.venv/bin/python ens/train_member.py --arch glu_span --seed 44 > logs/ens_glu_span_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch lstm_crf --seed 44 > logs/ens_lstm_crf_s44.log 2>&1
+.venv/bin/python ens/train_member.py --arch tf_crf --seed 44 > logs/ens_tf_crf_s44.log 2>&1
