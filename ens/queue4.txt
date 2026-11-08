@@ -1,9 +1,0 @@
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 42 --tag sm25_glu_crf_s42 --no-slot-lex --no-intent-lex --set span_mask_p=0.25 > logs/ens_sm25_glu_crf_s42.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 42 --tag sm50_glu_crf_s42 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_crf_s42.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_span --seed 42 --tag sm50_glu_span_s42 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_span_s42.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 43 --tag sm25_glu_crf_s43 --no-slot-lex --no-intent-lex --set span_mask_p=0.25 > logs/ens_sm25_glu_crf_s43.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 43 --tag sm50_glu_crf_s43 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_crf_s43.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_span --seed 43 --tag sm50_glu_span_s43 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_span_s43.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 44 --tag sm25_glu_crf_s44 --no-slot-lex --no-intent-lex --set span_mask_p=0.25 > logs/ens_sm25_glu_crf_s44.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_crf --seed 44 --tag sm50_glu_crf_s44 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_crf_s44.log 2>&1
-.venv/bin/python ens/train_member.py --arch glu_span --seed 44 --tag sm50_glu_span_s44 --no-slot-lex --no-intent-lex --set span_mask_p=0.50 > logs/ens_sm50_glu_span_s44.log 2>&1

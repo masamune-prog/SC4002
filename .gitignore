@@ -1,29 +1,16 @@
-1.0/
-amazon-massive-dataset-1.0.tar.gz
-Group Assignment Instruction.docx.pdf
-
 # Local Python environments and caches
 .venv/
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .ipynb_checkpoints/
 
-# Generated training and evaluation artifacts
+# Downloaded data and word vectors (see download_data.sh)
+1.0/
+amazon-massive-dataset-1.0.tar.gz
+embeddings/
+
+# Generated training artifacts
 checkpoints/*
 !checkpoints/.gitkeep
 logs/*
 !logs/.gitkeep
-outputs/*
-!outputs/.gitkeep
-
-# External pretrained vectors
-data/glove*.zip
-data/glove*.txt
-
-#sbatch
-.sbatch
-
-# ensemble experiment
-embeddings/
-ens/cache/

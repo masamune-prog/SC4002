@@ -1,95 +1,122 @@
-Amazon MASSIVE Dataset Setup
+# SC4002 — Stage-2 mixed-architecture ensemble (MASSIVE en-US)
 
-## GloVe + CRF experiment
+One system predicts both the intent and the slot spans of an utterance. It is an
+ensemble of six joint networks that share one frozen GloVe + fastText word-vector
+table:
 
-Download Stanford's [GloVe 6B archive](https://nlp.stanford.edu/projects/glove/)
-and place it at `data/glove.6B.zip`. The word vocabulary is fitted on
-`data/train.csv`; GloVe vectors are looked up from `utt` at both training and
-evaluation time, including for words outside that vocabulary. No gold labels
-enter the model inputs. The 100-dimensional word model has 3,053,994 parameters.
+| Member | Encoder | Slot head | Seed |
+|---|---|---|---|
+| `glu_crf_s42`, `glu_crf_s43` | gated dilated CNN | BIO-constrained CRF | 42, 43 |
+| `glu_span_s42`, `glu_span_s43` | gated dilated CNN | span classifier | 42, 43 |
+| `lstm_crf_s42` | 2-layer BiLSTM | BIO-constrained CRF | 42 |
+| `tf_crf_s42` | 4-layer pre-LN Transformer | BIO-constrained CRF | 42 |
 
-Submit `sbatch train_glove_crf.sbatch`, or run:
+The ensemble averages the members' intent probabilities. For slots, it keeps every
+span that at least 60% of members predict. The 60% threshold was chosen on dev.
+
+All code is in `main.ipynb`. The notebook covers data loading, preprocessing,
+scoring, the model, training, ensemble selection, a single test evaluation, the
+results table and error analysis.
+
+## Results
+
+These come from the committed `main.ipynb` run on a Tesla V100-32GB with
+torch 2.6.0+cu124.
+
+| Split | Intent accuracy | Slot micro-F1 | Total params | Trainable params |
+|---|---|---|---|---|
+| Validation | 88.59% | 84.29% | 18,414,920 | 14,892,320 |
+| Test | 87.53% | 81.92% | 18,414,920 | 14,892,320 |
+
+Each member trains for 40 epochs. The member epochs chosen on dev were
+40/35/31/28/26/33.
+
+## Reproduce on a fresh machine
+
+You need Linux with an NVIDIA GPU (CUDA 12.4 driver or newer), about 6 GB of
+free disk space, and `curl` and `unzip`.
+
+### 1. Install uv and the Python environment
 
 ```bash
-uv run python main_glove_crf.py --glove data/glove.6B.zip
-uv run python eval_glove.py --glove data/glove.6B.zip
+curl -LsSf https://astral.sh/uv/install.sh | sh     # skip if uv is already installed
+git clone -b ensemble_lexicon <repo-url> SC4002
+cd SC4002
+uv sync                                              # creates .venv with Python 3.12 and torch 2.6.0+cu124
 ```
 
-The best dev-selected checkpoint is saved under `checkpoints/glove_crf/`,
-training history under `logs/glove_crf/`, and test CSV files under
-`outputs/glove_crf/`.
+### 2. Download the data and word vectors
 
-## GloVe + BiGRU + CRF experiment
+```bash
+./download_data.sh
+```
 
-Run `sbatch train_bigru_glove_crf.sbatch` to train seeds 42–44 with the same
-training split, GloVe vectors, loss, optimizer, and dev early stopping as the
-GloVe Transformer. The two-layer bidirectional GRU has 3,455,914 parameters.
-The three-seed mean dev slot F1 was 80.44%, versus 78.84% for the 3.05M
-GloVe Transformer. The best-dev BiGRU checkpoint was seed 42; it scored
-77.97% slot F1 and 82.82% intent accuracy on test.
+This script downloads about 2.4 GB and creates the three files the notebook
+reads:
 
-`sbatch eval_bigru_glove_crf.sbatch` evaluates that checkpoint again.
-Per-seed dev results, test metrics, and test predictions are under
-`outputs/bigru_glove_crf/`.
+```
+1.0/data/en-US.jsonl            MASSIVE 1.0, en-US only (16,521 records)
+embeddings/glove.6B.300d.txt    GloVe 6B 300-d
+embeddings/crawl-300d-2M.vec    fastText Common Crawl 300-d
+```
 
-## Diffusion training for BIO slots
+Splits come from the dataset's own `partition` field: 11,514 train, 2,033 dev and
+2,974 test examples.
 
-`sbatch train_diffusion_glove.sbatch` trains a six-step discrete masked-label
-diffusion head. The word encoder and intent head are the same GloVe + BiGRU
-design; the slot head is a small Transformer denoiser. It predicts BIO tags
-from partly masked gold tags during training and starts from fully masked tags
-at inference. Its three-seed mean dev slot F1 was 69.90%. A one-step decode
-was stronger than iterative decoding on the seed-44 checkpoint (77.58% versus
-72.45% dev slot F1), so the iterative decoder was not retained as the final
-model.
+### 3. Train the ensemble and evaluate it
 
-`sbatch train_diffusion_crf_glove.sbatch` trains a hybrid with masked-tag
-denoising as an auxiliary slot objective and CRF sequence likelihood as the
-main slot objective. Its three-seed mean dev slot F1 was 79.82%, versus
-80.44% for the plain BiGRU + CRF. The best-dev hybrid checkpoint (seed 43)
-scored 77.66% test slot F1 and 83.15% test intent accuracy. Re-evaluate it
-with `sbatch eval_diffusion_crf_glove.sbatch`. The per-seed comparison and
-test CSV files are under `outputs/diffusion_crf_glove/`.
+On a Slurm cluster, run this from the repository root:
 
-Approach Vanilla Transformer
+```bash
+sbatch ens/run_notebook.sbatch
+```
 
-Using the massive dataset we first train our own bpe tokenizer on the training set of en-US.
+`ens/run_notebook.sbatch` requests the `UGGPU-TC1` partition. On another
+cluster, change `#SBATCH --partition` to your GPU partition first.
 
-The main model comprises of a single transformer encoder which takes in the tokenised sequence and outputs the predicted intent and slot tags.
+On a machine without Slurm, run:
 
+```bash
+.venv/bin/python ens/run_notebook.py main.ipynb
+```
 
+Both commands execute `main.ipynb` from top to bottom and save every output back
+into the notebook. Training writes these files:
 
+- `checkpoints/stage2/<member>.pt`: the six member checkpoints
+- `checkpoints/stage2/ensemble.json`: the selected members and vote threshold
+- `logs/stage2/`: per-epoch history
+- `logs/sc4002-notebook-<jobid>.out`: the Slurm log
 
+Each member trains for about 5 minutes on a V100 and about 3 minutes on an
+RTX 6000 Ada. The whole notebook took 19 minutes on the RTX 6000 Ada, well under
+the 3-hour job limit. To see the results, open `main.ipynb`:
 
+- Section 7: the dev scores of each member and the vote-threshold sweep.
+- Section 8: the reloaded ensemble's validation and test scores.
+- Section 9: the results table.
 
+### Optional: quick code check
 
-final test: loss=1.7462  intent_accuracy=80.53%  slot_micro_f1=64.60%
+This command runs a 2-epoch copy of the notebook, writes it to `smoke.ipynb`,
+and leaves `main.ipynb` unchanged:
 
+```bash
+.venv/bin/python ens/run_notebook.py main.ipynb --smoke smoke.ipynb
+```
 
+The smoke copy scores dev in place of test, so it never touches the test split.
 
+## Notes on reproducibility
 
-Follow these steps to download, extract, and inspect the Amazon MASSIVE NLU dataset.
-
-1. Download and Extract
-
-Run the following commands in your terminal to download the tarball and extract its contents:
-
-curl https://amazon-massive-nlu-dataset.s3.amazonaws.com/amazon-massive-dataset-1.0.tar.gz --output amazon-massive-dataset-1.0.tar.gz
-
-
-
-tar -xzvf amazon-massive-dataset-1.0.tar.gz
-
-
-2. Directory Structure
-
-Once extracted, the 1.0 directory will have the following structure:
-
-1.0
-├── LICENSE
-└── data
-    ├── af-ZA.jsonl
-    ├── am-ET.jsonl
-    ├── ar-SA.jsonl
-    ...
-
+- Members are seeded, but cuDNN and CUDA kernels are not fully deterministic.
+  On a different GPU, expect results within a few tenths of a point of the table
+  above, not an exact match. A fresh clone following these steps on an RTX 6000
+  Ada scored 88.39% / 84.30% on validation and 87.56% / 82.22% on test (intent
+  accuracy / slot micro-F1), with the same 0.6 vote threshold.
+- Data use: the train split fits every parameter and vocabulary. Dev selects
+  each member's epoch (raw or SWA weights) and the vote threshold. The test split
+  is scored once, in Section 8, after everything is frozen. The only model input
+  is `utt`.
+- Section 5 (Stage 1) is intentionally left for the group's own non-AI baseline.
+  If `STAGE1` is not defined, the results table shows Stage 2 only.
