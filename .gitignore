@@ -14,3 +14,10 @@ checkpoints/*
 !checkpoints/.gitkeep
 logs/*
 !logs/.gitkeep
+
+# Smoke-test copy of the notebook
+smoke.ipynb
+
+# Local editor and tool settings
+.claude/
+.codex/
