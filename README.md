@@ -7,7 +7,7 @@ Everything we submit is in **`main.ipynb`**, run top to bottom. The same noteboo
 | Stage 1 | Basic joint Transformer: GloVe-initialised word embeddings, 1–2 Transformer encoder layers, an intent head and a BIO slot head with BIO-constrained Viterbi decoding. Learning rate and depth are tuned on dev. | Section 5 |
 | Stage 2 | Ensemble of six joint networks (2 × GLU-CNN + CRF, 2 × GLU-CNN + span head, BiLSTM + CRF, Transformer + CRF) over a frozen GloVe ⊕ fastText table. Intent probabilities are averaged and slots are decided by span voting. | Sections 6–8 |
 
-Both stages are scored with the **official MASSIVE evaluation**. `src/sc4002/eval/massive_eval.py` holds a
+Both stages are scored with the **official MASSIVE evaluation**. Section 4 of `main.ipynb` holds a
 verbatim copy (Apache-2.0) of `convert_to_bio` and `eval_preds` from
 [alexa/massive](https://github.com/alexa/massive/blob/f966f21846043aabef9b0f974fa7970027f43738/src/massive/utils/training_utils.py),
 plus MASSIVE's own gold-label parser from `scripts/create_hf_dataset.py`. It computes three metrics:
@@ -18,9 +18,7 @@ plus MASSIVE's own gold-label parser from `scripts/create_hf_dataset.py`. It com
   match.
 - **Exact-match accuracy**: the intent is correct and the whole slot sequence is identical.
 
-Section 4 of the notebook wraps `eval_preds` in `score(...)`, and every dev and test number in the notebook comes
-from that one function. The code is unit-tested in `tests/test_massive_eval.py`. That test also checks that the
-gold labels line up word for word with `utt` on all 16,521 records.
+
 
 ## Results
 
@@ -45,7 +43,7 @@ reloaded from disk. The only model input is `utt`.
 
 ```
 main.ipynb                  the submission notebook (Stage 1 + Stage 2, with outputs)
-src/sc4002/eval/            evaluation code: massive_eval.py (official MASSIVE metrics, used by the notebook),
+src/sc4002/eval/            evaluation code: massive_eval.py (the same MASSIVE metrics as the notebook, unit-tested),
                             plus the group's earlier EvalMetric / SpanDecoder helpers
 tests/                      unit tests for the evaluation code
 download_data.sh            downloads MASSIVE en-US, GloVe 6B 300-d and fastText crawl 300-d
@@ -132,14 +130,6 @@ Open `main.ipynb`:
 - Section 9: the results table for both stages, which should match the table above.
 - Section 10: error analysis on the Stage-2 test predictions.
 
-### Optional: quick code check (about 3 minutes)
-
-```bash
-uv run python ens/run_notebook.py main.ipynb --smoke smoke.ipynb
-```
-
-This runs a 2-epoch copy of the whole notebook (both stages) into `smoke.ipynb` and leaves `main.ipynb`
-unchanged. The smoke copy scores dev in place of test, so it never touches the test split.
 
 ## Reproducibility
 
