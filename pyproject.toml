@@ -1,22 +1,34 @@
 [project]
 name = "sc4002"
 version = "0.1.0"
-description = "Add your description here"
+description = "SC4002 joint intent + slot filling on MASSIVE en-US: Stage-1 Transformer baseline and Stage-2 ensemble"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "matplotlib>=3.11.2",
-    "pandas>=3.0.6",
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.5,<3.10",
+    "nbclient",
+    "nbformat",
+    "numpy",
+    "pandas>=2.0,<3.0",
+    "scikit-learn",
+    "seqeval>=1.2.2",
+    "torch",
 ]
-
-[project.scripts]
-sc4002 = "sc4002:main"
-
-[build-system]
-requires = ["uv_build>=0.12.11,<0.13.0"]
-build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "ipykernel>=7.4.0",
+    "pytest>=8",
 ]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.13.0"]
+build-backend = "uv_build"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }

@@ -1,0 +1,569 @@
+
+❯ <ide_opened_file>The user opened the file
+  /Users/joylee/Documents/SC4002/code/SC4002/SC4002_baseline_transformer.ipynb
+  in the IDE. This may or may not be related to the current
+  task.</ide_opened_file>
+
+❯ You are a machine learning researcher specialising in natural language
+  processing.
+  We used a transformer for our baseline model. this model is to do 2 tasks,
+  namely:Task 1 - Intent classification: predict one of the 60 MASSIVE intent
+  labels for each
+  utterance. An example intent is “alarm_set”.
+  Task 2 - Slot filling: extract slot spans and classify their corresponding
+  slot types. There
+  are 55 slot types. An example [slot type: slot span] is [time: five am].Both
+  tasks are required in the system built at every stage. Every system must
+  produce an
+  intent label and the set of [slot type: slot span] pairs for each input
+  utterance. For this model, some guidelines are: There are no prescribed model
+  architectures. No pretrained models are
+  allowed (except word vectors). You may use any deep learning models capped at
+  20M.
+  The improved system may refine the system you have built in the first
+  stage or use a different architecture.
+  Do not use models already trained or fine-tuned on MASSIVE or related tasks.
+  Train or fine-tune each system yourselves using only the official MASSIVE
+  English training
+  split. No external or AI-generated task examples are allowed. Evaluate our
+  baseline transformer model and identify weaknesses in our system. explain the
+  weaknesses in our model thoroughly and suggest improvements, be it different
+  architechtures or different settings to improve our combined score.
+  IMPORTANT: ONLY SUGGEST IMPROVEMENTS BASED ON THIS NOTEBOOK. DO NOT RUN OR
+  IMPLEMENT CODE. FOCUS ON IMPROVEMENT SUGGESTION AND EXPLANATION
+
+⏺ I'll start by reading the baseline transformer notebook.
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Now I'll pull the training logs and learning curves to see how training
+  behaved.
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+⏺ I read the whole notebook and its saved training logs. As you asked, I didn't
+  change or run any of the model code; the only thing I ran was jq, to print the
+  saved training-log output. Everything below comes from the code and the
+  logged numbers.
+
+  Result to beat: validation 84.80 intent / 73.95 slot F1 (combined 79.38). Test
+  83.05 / 71.63 (combined 77.34). Selected setting: lr 5e-4, 1 layer, epoch 33.
+
+  ---
+
+  1. What the training logs show
+
+  ┌──────────┬────────────┬─────────┬─────────────┬───────────┬───────────┐
+  │          │ Best val   │  Val    │ Intent acc  │ Slot F1   │   Best    │
+  │   Run    │   loss     │ loss at │    peak     │ at best   │ combined  │
+  │          │  (epoch)   │  ep. 40 │   (epoch)   │   epoch   │           │
+  ├──────────┼────────────┼─────────┼─────────────┼───────────┼───────────┤
+  │ lr 1e-3, │ 1.02 (5)   │ 1.76    │ 85.05 (5)   │ 73.47     │ 78.74     │
+  │  1 layer │            │         │             │ (23)      │           │
+  ├──────────┼────────────┼─────────┼─────────────┼───────────┼───────────┤
+  │ lr 1e-3, │            │         │             │ 74.00     │           │
+  │  2       │ 1.04 (5)   │ 1.69    │ ~84         │ (39)      │ 79.00     │
+  │ layers   │            │         │             │           │           │
+  ├──────────┼────────────┼─────────┼─────────────┼───────────┼───────────┤
+  │ lr 5e-4, │ 1.02 (5)   │ 1.61    │ 85.29 (10)  │ 73.95     │ 79.38     │
+  │  1 layer │            │         │             │ (33)      │           │
+  ├──────────┼────────────┼─────────┼─────────────┼───────────┼───────────┤
+  │ lr 5e-4, │            │         │             │ 73.96     │           │
+  │  2       │ 1.00 (5)   │ 1.51    │ ~84.7       │ (19)      │ 79.31     │
+  │ layers   │            │         │             │           │           │
+  └──────────┴────────────┴─────────┴─────────────┴───────────┴───────────┘
+
+  Four patterns stand out:
+
+  - The model overfits early and badly. Validation loss is lowest at epoch 5 for
+    every run, then rises by 50–75% while training loss falls to about 0.1. The
+    argmax metrics stay flat because the model becomes overconfident rather
+    than less correct.
+  - The two tasks peak at different times. Intent accuracy is highest around
+    epochs 5–10 (85.0–85.3) and then drifts down to about 82–84. Slot F1 is
+    still slowly improving at epochs 20–39. Picking one epoch by the combined
+    score gives up some of each.
+  - The grid tuned the wrong things. All four settings land within 0.64 combined
+    points of each other, which is about the size of the epoch-to-epoch noise
+    (±1 point). Learning rate and depth are not what limits this model.
+  - The chosen checkpoint is a lucky spike. The selected run's neighbouring
+    epochs score about 78.6–78.7, but epoch 33 scored 79.38. Picking the best of
+    160 checkpoints (4 runs × 40 epochs) on validation, with one seed, makes
+    the validation number optimistic. That is part of why the test score is 2
+    points lower.
+
+  Slot F1 has much more room to improve than intent accuracy, and both count
+  equally in the combined score. Most of the gain will come from slot filling.
+
+  ---
+
+  2. Weaknesses, in order of likely impact
+
+  W1. Unseen words all become <unk>, and the <unk> vector is never trained
+
+  word2id is built from every training token with no minimum count, so no
+  training token ever maps to <unk>. Row 1 of the embedding (<unk>) never gets a
+  gradient. At validation and test time, every unseen word becomes a random
+  N(0, 0.1) vector the encoder has never seen.
+
+  GloVe very likely has a vector for most of those unseen words: song titles,
+  artist names, place names, uncommon verbs. The notebook discards them because
+  the vocabulary is limited to training words. This removes the main advantage
+  of pretrained word vectors, which is generalising to words not in the training
+  data. It mostly hurts open-class slots such as song_name, place_name, person,
+  event_name and business_name, which are exactly the types where span-level F1
+  suffers.
+
+  W2. No character or sub-word information
+
+  The model only sees whole words through a lookup table. Tokens like 5am,
+  10:30, 7th, o'clock, i'm or a misspelling are either an <unk> or a rarely seen
+  vector. Of the 5,302 training words, 384 have no GloVe vector at all. Time,
+  date and number-like slots are frequent in MASSIVE and are largely
+  recognisable from their characters.
+
+  W3. Slot tags are predicted independently; BIO rules are only applied at
+  decoding
+
+  The slot head applies a separate softmax at each word. The Viterbi step
+  removes invalid sequences, but the model never learns which tags tend to
+  follow which (for example, B-date → I-date, or O → B-time after "at"). It also
+  never learns these patterns during training. Slot F1 is scored on exact
+  spans, so one wrong boundary counts as both a false positive and a false
+  negative. A CRF output layer is the standard fix and typically gains a point
+  or two of F1 on slot-filling benchmarks.
+
+  W4. A transformer trained from scratch on 11.5k short utterances lacks local
+  bias
+
+  Self-attention has no built-in preference for neighbouring words, and the
+  learned position table (64 × 128) has to discover word order from limited
+  data. Positions beyond about 15 are seen rarely, since most utterances are
+  short. BIO tagging is mostly a local task. LSTM and convolutional layers have
+  this local bias built in, which is why BiLSTM-CRF remains a strong
+  non-pretrained baseline. The flat result for 1 versus 2 layers is consistent
+  with this: the encoder isn't using extra depth.
+
+  W5. Parameters are spent on the embedding table, not the encoder
+
+  About 89% of the 1.79M parameters are in the embedding table, which is fully
+  fine-tuned. The encoder has only 132k. The projection from 300 to 128
+  dimensions is a bottleneck (32 dimensions per attention head), and only 9% of
+  the 20M budget is used. Fine-tuning 1.59M embedding values on 11.5k sentences
+  also pulls training words away from their GloVe positions. Unseen synonyms
+  then stop lining up with them, which makes W1 worse.
+
+  W6. Weak regularisation and an outdated optimiser setup
+
+  - Adam with a constant learning rate: no warmup, no decay, no weight decay, no
+    gradient clipping. Post-LayerNorm transformers (norm_first=False) are known
+    to need warmup. A constant learning rate also explains the noisy validation
+    curves, because the model never settles.
+  - Dropout of 0.1 is too low given how fast validation loss rises. There is no
+    word dropout and no label smoothing.
+
+  W7. Intent pooling and the lack of interaction between the tasks
+
+  - Mean pooling gives filler words ("please", "can you") the same weight as the
+    words that decide the intent ("wake", "remind").
+  - The two heads only share the encoder. The intent head ignores the predicted
+    slots, and the slot head ignores the predicted intent. Intents and slot
+    types depend heavily on each other: alarm_set never has a song_name, and
+    play_music rarely has time. The model can produce outputs that contradict
+    each other.
+  - The scenario field (18 scenarios; each intent is scenario_action) is never
+    used, even though it is part of the training split and gives a coarse
+    grouping of the intents.
+
+  W8. The tasks share one loss weighting and one stopping point
+
+  The loss is CE_intent + CE_slot with equal weights. Intent is learned and
+  overfitted by epoch 10, while slots need about 30 epochs. Through the shared
+  encoder, the intent loss keeps fitting the training set while the slot head is
+  still learning.
+
+  W9. The evaluation can't tell which change actually helps
+
+  There is one seed, no variance estimate and no breakdown of errors. With
+  roughly ±1 point of noise per epoch, improvements under about 1 point cannot
+  be separated from luck.
+
+  ---
+
+  3. Suggested improvements, in priority order
+
+  Tier 1: cheap changes that address the biggest weaknesses
+
+  1. Word dropout plus singleton-to-<unk> replacement (fixes W1).
+     - During training, replace each token with <unk> with probability p ≈
+       0.1–0.25.
+     - Alternatively, apply this mainly to words seen once or twice.
+     - This trains the <unk> vector and teaches the model to tag unknown words
+       from their context ("play ___ by ___"), which is the situation it faces
+       at test time.
+  2. Build the vocabulary from GloVe, not from the training data (fixes W1 and
+     W5).
+     - Load the top 40–50k GloVe words. 50k × 300 = 15M parameters, which still
+       fits under 20M with an encoder of about 3M.
+     - Freeze the GloVe vectors, or train only a small correction for training
+       words. That way, unseen words at test time keep their meaning.
+     - This does not touch the dev or test data; the vocabulary comes only from
+       GloVe. Count the frozen table against the 20M cap to be safe.
+  3. Fix the optimiser setup (fixes W6).
+     - Use AdamW with weight decay of 0.01–0.1.
+     - Warm up linearly for about 5–10% of the steps, then decay with a cosine
+       or linear schedule.
+     - Clip gradients at a norm of 1.0, and switch to norm_first=True
+       (pre-LayerNorm).
+     - Expect smoother curves and a later, more stable best epoch.
+  4. Stronger regularisation (fixes W6). Use dropout of 0.2–0.3, add dropout on
+     the embeddings, and add label smoothing of 0.1 on the intent loss, which
+     targets the overconfidence seen in the rising validation loss.
+  5. Run 3–5 seeds per setting and report the mean ± standard deviation (fixes
+     W9). Do this before comparing any of the changes below.
+
+  Tier 2: architecture
+
+  6. Add a CRF output layer (fixes W3). Replace the per-word softmax with a
+     linear-chain CRF, trained with its negative log-likelihood and decoded with
+     Viterbi. Your BIO constraint matrix can initialise the transition scores,
+     or mask them. This is the change most directly aimed at slot F1.
+  7. Add a character-level encoder (fixes W2). A char-CNN (character embeddings
+     of size 30–50, filters of width 3, max-pooled to 50–100 dimensions) or a
+     small char-BiLSTM, concatenated with the word vector. It is cheap, adds
+     well under 100k parameters, and helps with numbers, times, misspellings and
+     unseen names.
+  8. Give the encoder a local bias (fixes W4). Two options:
+     - Hybrid: embeddings → 1 BiLSTM layer → 2–4 transformer layers → CRF. The
+       BiLSTM supplies word order and locality; attention adds context across
+       the whole sentence.
+     - Or keep it pure transformer but use relative positions (Shaw-style or
+       T5-style biases) or sinusoidal positions in place of the learned
+       64-position table.
+
+     I'd also train a plain BiLSTM-CRF with char-CNN and GloVe as a control. On
+     data this size it often matches or beats a transformer trained from
+     scratch, and it tells you whether attention is helping.
+  9. Spend the parameter budget on the encoder (fixes W5). Something like
+     d_model 256, 4 heads, feed-forward 512–1024, 2–4 layers, roughly 1–3M
+     encoder parameters. Only do this after Tier 1, since more capacity without
+     regularisation will overfit faster.
+  10. Better intent pooling (fixes W7). Add a learned [CLS] token, or use
+      attention pooling (a learned query attending over the encoder outputs), or
+      concatenate mean and max pooling.
+
+  Tier 3: joint modelling between the two tasks
+
+  11. Let each task use the other's prediction (fixes W7).
+      - Intent informs slots: add the predicted intent's distribution (or its
+        embedding) to every word before the slot layer or CRF. Examples are
+        slot-gated models, Stack-Propagation (Qin et al., 2019) and
+        Co-Interactive Transformer (Qin et al., 2021).
+      - Slots inform intent: pool the slot-head hidden states into the intent
+        classifier.
+  12. Rule out slot types the predicted intent never uses. From the training
+      split, record which slot types ever appear with each intent (or scenario).
+      At decoding, either:
+      - mask out slot types never seen with the predicted intent, or
+      - choose the intent and slots together, taking the best few intents and
+        keeping the pair with the highest combined score.
+
+      This uses only training statistics and removes contradictory outputs.
+  13. Predict the scenario as an extra task (fixes W7). Add a scenario
+      classifier trained with its own loss (weight around 0.3–0.5), or predict
+      scenario first and then the action. This helps confusions between
+      scenarios. An error analysis first would show how many intent errors are
+      within one scenario versus across scenarios.
+  14. Balance the two tasks (fixes W8).
+      - Tune a weight λ in CE_intent + λ·CE_slot, with λ around 1.5–3 since
+        slots learn more slowly, or learn the weights automatically (uncertainty
+        weighting, Kendall et al., 2018).
+      - Or keep two checkpoints from the same run (best intent epoch, best slot
+        epoch) and take each task's output from its own checkpoint. That is 2 ×
+        the parameters, still well under the cap.
+  15. Ensemble several seeds. Average the intent logits and the slot emission
+      scores (or CRF scores) from 3–5 models. Five models of about 3M parameters
+      each fit under 20M. This usually gives a reliable gain of 1 point or more
+      and also reduces the luck of picking one checkpoint.
+
+  Data (check the rules first)
+
+  16. Swap slot values within the training data. Replace a slot span with
+      another value of the same type taken from the training split (for example,
+      one song_name for another). It creates no external or AI-generated text,
+      but it is a judgement call under "no external or AI-generated task
+      examples". Confirm with your instructor before using it.
+
+  ---
+
+  4. Analysis to do before or while building the next model
+
+  These are cheap to compute from the existing evaluate output, and they will
+  tell you which of the steps above will pay off most:
+
+  - Unseen-word rate: the share of test tokens, and especially test slot-span
+    tokens, that become <unk>, plus F1 split by whether the span contains an
+    unseen word. If it is high, W1 and W2 are the main problems.
+  - F1 per slot type: compare closed-class types (time, date,
+    weather_descriptor) with open-class types (song_name, event_name,
+    place_name).
+  - Slot error types: classify the false positives and false negatives as wrong
+    boundary, wrong type, missed span, or invented span. Many boundary errors
+    point to adding a CRF; many invented spans may point to the intent-based
+    slot masking.
+  - F1 by span length: long spans hurt most under exact matching.
+  - Intent confusion matrix grouped by scenario: this decides whether predicting
+    the scenario (item 13) is worth it.
+
+  Suggested order of experiments
+
+  Seeds → Tier 1 (items 1–4) → CRF + char-CNN → hybrid BiLSTM-transformer vs.
+  pure transformer → intent-to-slot interaction and slot masking → ensemble. Add
+  one change at a time, each with 3+ seeds, so the write-up can show what each
+  change contributed.
+
+  If it would help, I can turn this into a page you can share with your team or
+  reuse in the report.
+
+❯ u mentioned developing a plain BiLSTM-CRF with char-CNN and GloVe. we have
+  developed different architechtures independently, like CNN, transformers, CRF
+  and BiLSTM. would combining these models into an ensemble help in this case
+
+⏺ Yes, it will usually help. How much depends on two things you can check before
+  building anything: whether the models are similarly strong, and whether they
+  get different examples wrong. Models with different architectures tend to make
+  more varied mistakes than copies of one model trained with different seeds,
+  which is good for an ensemble. A clearly weaker model can still pull the
+  result down if every model gets an equal vote.
+
+  When it helps and when it doesn't
+
+  It helps when:
+  - The models make different mistakes. A CNN mostly uses short local patterns,
+    a BiLSTM uses word order, a transformer uses the whole sentence, and a CRF
+    uses which tag follows which. Where one model fails, another may get it
+    right.
+  - There's room above your best single model. Check this on the dev set with
+    the "oracle" score: the share of utterances where at least one model gets
+    the intent right (or the span right). If the oracle is far above your best
+    single model, an ensemble has room to gain. If it's barely higher, the
+    models make the same mistakes and an ensemble won't help much.
+  - It reduces noise. Your training curves move about ±1 point per epoch, and
+    averaging several models smooths out the luck of which checkpoint you
+    picked. That alone is a reliable gain.
+
+  It doesn't help, or it hurts, when:
+  - One model is much weaker than the rest. For example, if your "CRF" is the
+    stage-1 CRF with no hidden layers (going by the commit history), it is
+    probably several F1 points behind the neural models. With equal votes it
+    drags the result down. Give it a small weight, or leave it out.
+  - The models' confidence isn't comparable. Your transformer's validation loss
+    rises from 1.0 to 1.6, which means it is overconfident. If you average
+    probabilities, it will outvote better models simply because it is more
+    certain. Fix this with temperature scaling, fitted per model on the dev set,
+    before averaging.
+
+  How to combine them (each task needs a different method)
+
+  Task 1, intent. This is easy:
+  - Average the calibrated softmax probabilities across the models, with a
+    weight per model, then take the top intent.
+  - Simple majority voting also works, but it ties often with 4 models.
+
+  Task 2, slots. This is harder, because a span is only correct if every word in
+  it is tagged correctly. There are two good options:
+
+  Method: Average the per-word tag probabilities, then decode
+  How: Average each model's tag probabilities at every word, then run your
+  BIO-constrained Viterbi on the average.
+  Notes: Needs the same tokenisation (whitespace split) and the same 111-tag set
+
+  in every model. CRF models don't output per-word probabilities directly, so
+  compute them with the forward-backward algorithm.
+  ────────────────────────────────────────
+  Method: Vote on spans
+  How: Each model outputs its set of (slot type, span text) pairs. Keep a span
+  if
+  at least k models predicted it, then resolve overlapping spans.
+  Notes: Works on any model's output, CRF or not. It matches how F1 is scored.
+  Tune k on dev: a lower k finds more spans (higher recall), a higher k makes
+  fewer mistakes (higher precision).
+
+  I'd try both and keep whichever scores better on dev. Avoid choosing one
+  model's whole tag sequence per sentence; that wastes most of what the ensemble
+  offers.
+
+  Different models for each task. Each task can use its own set of models and
+  weights. For example, the transformer might help the intent ensemble but hurt
+  the slot ensemble. Because the combined score is just the average of the two
+  task scores, treat them as separate problems.
+
+  Check the final pair. An intent chosen by one vote and slots chosen by another
+  can contradict each other, such as alarm_set with a song_name slot. Apply the
+  intent-to-slot-type compatibility mask from my earlier list (item 12) after
+  combining.
+
+  Rules and budget
+
+  - The 20M limit covers the whole ensemble. Each of your models has its own
+    GloVe table of about 1.6M parameters, so 4–5 models of about 2M each is
+    fine. If you later switch to the larger GloVe vocabulary I suggested (about
+    15M), an ensemble of separate models won't fit. You would need the models to
+    share one frozen embedding table, counted once, or stay with the smaller
+    vocabulary.
+  - Don't train a meta-model on the dev set. A learned combiner (stacking)
+    trained on dev predictions arguably breaks "train only on the training
+    split". It would also overfit 2,033 examples. Tuning a few weights,
+    temperatures and the threshold k on dev is ordinary hyperparameter tuning
+    and is fine. If you want stacking, use out-of-fold predictions from
+    cross-validation on the training split, at the cost of K times more
+    training.
+  - Describe the ensemble as one system in the report, with the parameter count
+    for the whole pipeline, as your notebook already does.
+
+  Combine whole models, or build them into one model?
+
+  These are two separate ideas, and you can do both:
+  1. One combined model: char-CNN + GloVe → BiLSTM → transformer layers → CRF.
+     This combines the strengths of each architecture, and the parts are trained
+     together.
+  2. An ensemble: combines the outputs of separately trained models.
+
+  Usually the strongest result comes from building the best single combined
+  model first, then ensembling it with 2–3 other strong models that work
+  differently. The plain BiLSTM-CRF is a good partner because its mistakes
+  differ from a transformer's. A gain of roughly 0.5–2 combined points over the
+  best single model is typical, but your oracle check will give you a better
+  estimate.
+
+  Recommended steps
+
+  1. Save each model's outputs on dev and test, in the same example order:
+     intent probabilities, per-word tag probabilities and span sets.
+  2. Run the checks on dev: each model's score, how often each pair of models
+     agrees, and the oracle scores. Drop models that are both weaker and rarely
+     right when the others are wrong.
+  3. Fit a temperature per model on dev.
+  4. Intent: weighted average of probabilities. Try equal weights first, then a
+     small grid of weights.
+  5. Slots: compare averaged probabilities + Viterbi against span voting with k
+     tuned.
+  6. Optionally choose the models step by step: add one model at a time while
+     the dev combined score improves. This is safe with only 4–5 candidates.
+  7. Score the test set once. For the report, include a table showing each model
+     alone and the ensemble with each model removed in turn, so the
+     contribution of each architecture is visible.
+
+❯ letting each task use the other's prediction means the intent also plays a
+  part in predicting slot tag? why is this needed
+
+⏺ Yes. "Intent informs slots" means the slot tagger receives the model's intent
+  prediction as an extra input when it chooses each word's tag. The other
+  direction, "slots inform intent", does the reverse. Here is why it's useful
+  and when it isn't.
+
+  Why the slot tagger benefits from knowing the intent
+
+  1. The same words can belong to different slot types, and the intent decides
+  which.
+
+  ┌───────────────┬───────┬─────────────────────┬───────────────────────────┐
+  │   Utterance   │ Span  │  Correct slot type  │      What decides it      │
+  ├───────────────┼───────┼─────────────────────┼───────────────────────────┤
+  │ "play paris   │ paris │ song_name           │ intent play_music         │
+  │ by ..."       │       │                     │                           │
+  ├───────────────┼───────┼─────────────────────┼───────────────────────────┤
+  │ "weather in   │ paris │ place_name          │ intent weather_query      │
+  │ paris"        │       │                     │                           │
+  ├───────────────┼───────┼─────────────────────┼───────────────────────────┤
+  │ "remind me to │       │ the reminder's      │                           │
+  │  call mom"    │ mom   │ content, not a      │ intent calendar_set       │
+  │               │       │ contact             │                           │
+  ├───────────────┼───────┼─────────────────────┼───────────────────────────┤
+  │ "call mom"    │ mom   │ relation / person   │ intent email_querycontact │
+  │               │       │                     │  / call intent            │
+  └───────────────┴───────┴─────────────────────┴───────────────────────────┘
+
+  The boundaries are the easy part here. The hard part is the type, and the
+  intent largely determines it. Span F1 needs both type and text to match
+  exactly. So a wrong type costs twice: one false positive (the wrong type) plus
+  one false negative (the missed correct type).
+
+  2. Each intent only uses a few slot types. There are 55 slot types, but a
+  given intent typically uses only a handful of them. alarm_set uses time and
+  date, never song_name or currency_name. Knowing the intent shrinks the slot
+  head's real choice from 111 tags to perhaps 10–15. That matters for a model
+  learning from only 11.5k sentences.
+
+  3. The two outputs should agree with each other. Right now the system can
+  output alarm_set with a song_name slot. The two heads never see each other's
+  decisions, so nothing prevents this.
+
+  Doesn't the shared encoder already do this?
+
+  Only indirectly, and only weakly in your baseline:
+  - Each word's slot prediction only sees that word's encoder output. The slot
+    head is a linear layer applied to one word at a time. Any sentence-level
+    information must already be in that word's encoder output, and your selected
+    model has just one attention layer to put it there.
+  - Only the intent head is trained to summarise the whole sentence. It is about
+    85% accurate, so its output is a strong, compact summary that the slot head
+    never gets to use.
+  - There may not be enough data to learn it indirectly. With 60 intents and
+    11.5k examples, the encoder may not learn to carry "this is a music request"
+    into every word's representation. Feeding it in directly gives the slot
+    head that information for free.
+
+  Published joint models report gains from this: slot-gated models,
+  Stack-Propagation (Qin et al., 2019) and Co-Interactive Transformer (Qin et
+  al., 2021). Most of the improvement is in slot F1.
+
+  The other direction: slots help intent
+
+  Detected slots are evidence for the intent. A song_name or artist_name span
+  strongly suggests play_music, and a time span suggests alarm or calendar
+  intents over, say, weather_query. This helps with intents that use similar
+  wording, which is where much of your remaining 15% intent error probably is.
+
+  How it is usually done
+
+  - Soft conditioning (recommended): take the intent probabilities and compute a
+    weighted mix of learned intent vectors (one vector per intent). Add that
+    mix to each word's encoder output before the slot layer or CRF. A gated
+    version (the slot-gated model) learns how much to rely on it at each word.
+  - Hard compatibility mask (no parameters): from the training split, record
+    which slot types ever appear with each intent. At decoding, forbid slot
+    types never seen with the predicted intent.
+  - Joint decoding: decode the slots for each of the top 2–3 intents and keep
+    the pair with the highest combined score.
+
+  The main risk: a wrong intent leads to wrong slots
+
+  About 15% of intents are wrong. If the slot head trusts a wrong intent, it may
+  now get slots wrong that it would have tagged correctly before. Ways to
+  reduce this:
+  - Pass on the intent probabilities, not just the top intent. When the model is
+    unsure (say 0.5 play_music, 0.4 play_radio), the slot head sees that
+    uncertainty.
+  - Don't train with the gold intent only. If training always uses the correct
+    intent, the slot head learns to trust it fully and breaks on wrong
+    predictions at test time. Train with the predicted (soft) intent, or mix
+    gold and predicted intents.
+  - Use joint decoding over the top few intents, so one confident mistake
+    doesn't decide everything.
+  - Apply the hard mask by scenario rather than by intent. Scenario is the
+    coarser label. It is wrong less often than the intent, and it still rules
+    out most impossible slot types.
+
+  Is it actually needed for your model?
+
+  It's not required, and you can check whether it would pay off. On the dev
+  predictions you already have:
+  1. Count slot errors where the span text is right but the type is wrong. These
+     are the errors that knowing the intent fixes.
+  2. Count predicted slot types that never appear with the gold intent in the
+     training split. These are the errors the hard mask would remove for free.
+
+  If those two make up a large share of slot errors, this change is worth doing.
+  If most errors are missed spans or wrong boundaries, the CRF and the
+  character features from the earlier list will give more.

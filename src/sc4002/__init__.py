@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from sc4002!")
+"""Shared code for the SC4002 assignment (evaluation helpers live in sc4002.eval)."""
